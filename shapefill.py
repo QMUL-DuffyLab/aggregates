@@ -5,10 +5,10 @@ from circles import Circle, Circles
 class ShapeFill(Circles):
     """A class for filling a shape with circles."""
 
-    def __init__(self, img_name, *args, **kwargs):
+    def __init__(self, img, *args, **kwargs):
         """Initialize the class with an image specified by filename.
 
-        The image should be black on a white background.
+        The image should be white on a black background.
 
         The maximum and minimum circle sizes are given by rho_min and rho_max
         which are proportions of the minimum image dimension.
@@ -18,20 +18,10 @@ class ShapeFill(Circles):
 
         """
 
-        self.img_name = img_name
-        # Read the image and set the image dimensions; hand off to the
-        # superclass for other initialization.
-        self.read_image(img_name)
+        self.img = img
+        self.width, self.height = np.shape(img)[0], np.shape(img)[1]
         dim = min(self.width, self.height)
         super().__init__(self.width, self.height, dim, *args, **kwargs)
-
-    def read_image(self, img_name):
-        """Read the image into a NumPy array and invert it."""
-
-        img = Image.open(img_name).convert('1')
-        self.width, self.height = img.width, img.height
-        self.img = 255 - np.array(img.getdata()).reshape(img.height, img.width)
-        self.img = self.img.T
 
     def _circle_fits(self, icx, icy, r):
         """If I fits, I sits."""
@@ -86,7 +76,7 @@ class ShapeFill(Circles):
                 self.circles.append(circle)
                 return True
             guard -= 1
-        print('guard reached.')
+        # print('guard reached.')
         return False
 
 if __name__ == '__main__':

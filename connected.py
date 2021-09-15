@@ -1,6 +1,14 @@
 import cv2
 import sys
 import numpy as np
+from circles import Circle, Circles
+from shapefill import ShapeFill
+
+
+pixel_size = 1 # in nanometres
+trimer_radius = 2.25 # also nm
+image_size = 1024 # in pixels
+rho = (trimer_radius / pixel_size) / image_size
 
 np.set_printoptions(threshold=sys.maxsize)
 img = cv2.imread('004_new.bmp', 0)
@@ -37,7 +45,14 @@ for i in range(0, num_labels):
         # finding a pixels in the labels array that have the current
         # connected component ID
         componentMask = (labels_im == i).astype("uint8") * 255
-        # show our output image and connected component mask
-        cv2.imwrite("components/{:3d}.png".format(i), output)
-        cv2.imwrite("components/connected_component_{:3d}.png".format(i), componentMask)
+        # compare the area of a single trimer to the area of the
+        # grain to get a rough estimate of how many circles to try and place
+        # also note that 0.9 might still be too high - impossible to pack
+        # 100% of the area with circles
+        n = int(0.9 * area / (np.pi * (trimer_radius / pixel_size)**2))
+        shape = ShapeFill(componentMask, n=n, rho_min=rho, rho_max=rho, colours=['#99001A'])
+        shape.guard = 100
+        shape.make_circles()
+        shape.make_svg('components/{:03d}.svg'.format(i))
+
 

@@ -48,3 +48,16 @@ class QuenchedTrimer(Trimer):
         trap(s) - do this here. idk what this will involve yet
         '''
         return
+'''
+class Aggregate():
+    # connected components bits: x, y, h, w, area, image
+    # (monochrome with only this aggregate) then pass to shapefill,
+    # add the circles and adjacency info to the aggregate as well.
+    def __init__(self, x, y, h, w, area, image):
+
+def _adj(circles):
+    ''' return a set of Aggregates with corresponding adjacency matrices '''
+    blocks = np.empty()
+    for c1 in circles:
+        neighbours = np.where([circle.is_nn(self.CX+cx, self.CY+cy, r, nn_cutoff) for cirlce in self.circles] > 0)
+'''

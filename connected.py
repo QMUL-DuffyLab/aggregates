@@ -1,22 +1,24 @@
 import cv2
 import sys
 import numpy as np
-from circles import Circle, Circles
-from shapefill import ShapeFill
+from trimer import Aggregate
 
+# code adapted from https://www.pyimagesearch.com/2021/02/22/opencv-connected-component-labeling-and-analysis/
 
+input_file = '004_new.bmp'
 pixel_size = 1 # in nanometres
 trimer_radius = 2.25 # also nm
 image_size = 1024 # in pixels
 rho = (trimer_radius / pixel_size) / image_size
 
 np.set_printoptions(threshold=sys.maxsize)
-img = cv2.imread('004_new.bmp', 0)
+img = cv2.imread(input_file, 0)
 img = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)[1]  # ensure binary
 # img is now a big array that's either 0 or 255
 output = cv2.connectedComponentsWithStats(img)
 (num_labels, labels_im, stats, centroids) = output
 print("Number of aggregates = {}".format(num_labels))
+aggregates = []
 
 for i in range(0, num_labels):
         if i == 0: # background
@@ -50,9 +52,9 @@ for i in range(0, num_labels):
         # also note that 0.9 might still be too high - impossible to pack
         # 100% of the area with circles
         n = int(0.9 * area / (np.pi * (trimer_radius / pixel_size)**2))
-        shape = ShapeFill(componentMask, n=n, rho_min=rho, rho_max=rho, colours=['#99001A'])
-        shape.guard = 100
-        shape.make_circles()
-        shape.make_svg('components/{:03d}.svg'.format(i))
+        if (n > 0):
+            ag = Aggregate(componentMask, x, y, w, h, area, n, rho)
+            aggregates.append(ag)
+            ag.shapefill.make_svg('components/{:03d}.svg'.format(i))
 
 

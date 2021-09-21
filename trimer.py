@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from shapefill import ShapeFill
 
 class Trimer():
     '''
@@ -48,16 +49,32 @@ class QuenchedTrimer(Trimer):
         trap(s) - do this here. idk what this will involve yet
         '''
         return
-'''
-class Aggregate():
-    # connected components bits: x, y, h, w, area, image
-    # (monochrome with only this aggregate) then pass to shapefill,
-    # add the circles and adjacency info to the aggregate as well.
-    def __init__(self, x, y, h, w, area, image):
 
-def _adj(circles):
-    ''' return a set of Aggregates with corresponding adjacency matrices '''
-    blocks = np.empty()
-    for c1 in circles:
-        neighbours = np.where([circle.is_nn(self.CX+cx, self.CY+cy, r, nn_cutoff) for cirlce in self.circles] > 0)
-'''
+class Aggregate:
+    '''
+    connected components bits: stats, image
+    (monochrome with only this aggregate) then pass to shapefill,
+    add the circles and adjacency info to the aggregate as well.
+    '''
+    def __init__(self, image, x, y, w, h, area, n, rho):
+        self.image = image
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
+        self.area = area
+        self.shapefill = ShapeFill(image, n=n, rho_min=rho, rho_max=rho, colours=['#99001A'])
+        self.shapefill.guard = 100
+        self.shapefill.make_circles()
+
+
+    def _adj(self):
+        '''
+        construct an adjacency matrix
+        '''
+        nn_cutoff = 1.2 * rho # rho won't work i don't think, need to work out r in pixels
+        adj = np.zeros((len(self.shapefill.circles), len(self.shapefill.circles)))
+        for c in self.shapefill.circles:
+            # this makes no sense yet lol
+            neighbours = np.where([circle.is_nn(self.CX + cx, self.CY + cy, nn_cutoff) for c2 in self.shapefill.circles])
+            adj[i] = neighbours

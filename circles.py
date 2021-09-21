@@ -18,7 +18,7 @@ class Circle:
         d = np.hypot(cx-self.cx, cy-self.cy)
         return d < r + self.r
 
-    def is_nn(self, cx, cy, r, nn_cutoff):
+    def is_nn(self, cx, cy, nn_cutoff):
         """Do we consider this circle as a neighbour to the circle (cx, cy)?"""
 
         d = np.hypot(cx-self.cx, cy-self.cy)
@@ -26,7 +26,8 @@ class Circle:
 
     def draw_circle(self, fo):
         """Write the circle's SVG to the output stream, fo."""
-
+        # next line is for when i figure out how to use cv2 everywhere lol
+        # cv2.circle(img, (self.cx, self.cy), self.r, (0, 0, 255), -1)
         print('<circle cx="{}" cy="{}" r="{}" class="c{}"/>'
             .format(self.cx, self.cy, self.r, self.icolour), file=fo)
 

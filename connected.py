@@ -25,7 +25,7 @@ for i in range(0, num_labels):
             continue
         # otherwise, we are examining an actual connected component
         else:
-        	text = "examining component {}/{}".format(i + 1, num_labels)
+        	text = "examining component {}/{}".format(i, num_labels)
         # print a status message update for the current connected
         # component
         # extract the connected component statistics and centroid for
@@ -55,6 +55,6 @@ for i in range(0, num_labels):
         if (n > 0):
             ag = Aggregate(componentMask, x, y, w, h, area, n, rho)
             aggregates.append(ag)
-            ag.shapefill.make_svg('components/{:03d}.svg'.format(i))
+            ag.shapefill.make_image('components/{:03d}.jpg'.format(i))
 
 

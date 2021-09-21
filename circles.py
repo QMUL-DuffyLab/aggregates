@@ -1,4 +1,5 @@
 import numpy as np
+import cv2
 
 class Circle:
     """A little class representing an SVG circle."""
@@ -24,12 +25,10 @@ class Circle:
         d = np.hypot(cx-self.cx, cy-self.cy)
         return d < nn_cutoff
 
-    def draw_circle(self, fo):
+    def draw_circle(self, img):
         """Write the circle's SVG to the output stream, fo."""
         # next line is for when i figure out how to use cv2 everywhere lol
-        # cv2.circle(img, (self.cx, self.cy), self.r, (0, 0, 255), -1)
-        print('<circle cx="{}" cy="{}" r="{}" class="c{}"/>'
-            .format(self.cx, self.cy, self.r, self.icolour), file=fo)
+        cv2.circle(img, (self.cy, self.cx), 2, (26, 0, 153), -1, cv2.LINE_AA)
 
 class Circles:
     """A class for drawing circles-inside-a-circle."""
@@ -60,51 +59,12 @@ class Circles:
         # times before giving up.
         self.guard = 500
 
-    def preamble(self):
-        """The usual SVG preamble, including the image size."""
-
-        bg_string = ''
-        black_bg = True
-        if (black_bg):
-            bg_string = '\n<rect width="100%" height="100%" fill="black"/>'
-
-        print('<?xml version="1.0" encoding="utf-8"?>\n'
-        '<svg xmlns="http://www.w3.org/2000/svg"\n' + ' '*5 +
-          'xmlns:xlink="http://www.w3.org/1999/xlink" width="{}" height="{}" >'
-                .format(self.width, self.height) + bg_string, file=self.fo)
-
-    def defs_decorator(func):
-        """For convenience, wrap the CSS styles with the needed SVG tags."""
-
-        def wrapper(self):
-            print("""
-            <defs>
-            <style type="text/css"><![CDATA[""", file=self.fo)
-
-            func(self)
-
-            print("""]]></style>
-            </defs>""", file=self.fo)
-        return wrapper
-
-    @defs_decorator
-    def svg_styles(self):
-        """Set the SVG styles: circles are coloured with no border."""
-
-        print('circle {stroke: none;}', file=self.fo)
-        for i, c in enumerate(self.colours):
-            print('.c{} {{fill: {};}}'.format(i, c), file=self.fo)
-
-    def make_svg(self, filename, *args, **kwargs):
-        """Create the image as an SVG file with name filename."""
-
-        ncolours = len(self.colours)
-        with open(filename, 'w') as self.fo:
-            self.preamble()
-            self.svg_styles()
-            for circle in self.circles:
-                circle.draw_circle(self.fo)
-            print('</svg>', file=self.fo)
+    def make_image(self, filename, *args, **kwargs):
+        """ add the circles to the image and write it out. """
+        colour_img = self.colour_img
+        for circle in self.circles:
+            circle.draw_circle(colour_img)
+        cv2.imwrite(filename, colour_img)
 
     def _place_circle(self, r, c_idx=None):
         """Attempt to place a circle of radius r within the larger circle.

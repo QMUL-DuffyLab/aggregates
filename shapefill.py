@@ -1,6 +1,7 @@
 from PIL import Image
 import numpy as np
 from circles import Circle, Circles
+import cv2
 
 class ShapeFill(Circles):
     """A class for filling a shape with circles."""
@@ -19,6 +20,7 @@ class ShapeFill(Circles):
         """
 
         self.img = img
+        self.colour_img = cv2.cvtColor(self.img, cv2.COLOR_GRAY2BGR)
         self.width, self.height = np.shape(img)[0], np.shape(img)[1]
         dim = min(self.width, self.height)
         super().__init__(self.width, self.height, dim, *args, **kwargs)

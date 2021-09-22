@@ -28,7 +28,12 @@ class Circle:
     def draw_circle(self, img):
         """Write the circle's SVG to the output stream, fo."""
         # next line is for when i figure out how to use cv2 everywhere lol
-        cv2.circle(img, (self.cy, self.cx), 2, (26, 0, 153), -1, cv2.LINE_AA)
+        cv2.circle(img, (self.cy, self.cx), 4, (26, 0, 153), -1, cv2.LINE_AA)
+
+    def move(self, cx, cy):
+        """ move to (cx, cy). assumes we've checked for collisions! """
+        self.cx = cx
+        self.cy = cy
 
 class Circles:
     """A class for drawing circles-inside-a-circle."""
@@ -61,10 +66,12 @@ class Circles:
 
     def make_image(self, filename, *args, **kwargs):
         """ add the circles to the image and write it out. """
-        colour_img = self.colour_img
+        col = self.colour_img
+        colour_img = self.colour_img.copy()
         for circle in self.circles:
             circle.draw_circle(colour_img)
         cv2.imwrite(filename, colour_img)
+        self.colour_img = col
 
     def _place_circle(self, r, c_idx=None):
         """Attempt to place a circle of radius r within the larger circle.

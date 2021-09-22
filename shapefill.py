@@ -81,6 +81,77 @@ class ShapeFill(Circles):
         # print('guard reached.')
         return False
 
+    def pull_circles(self):
+        '''
+        pull all the circles towards a given point to make space.
+        '''
+        # pick a pixel within the image to act as a centre of gravity
+        # note: _place_circle applies a mask which turns the location of
+        # each circle black, so this should only pick out unoccupied pixels
+        img_coords = np.nonzero(self.img)
+        # i = np.random.randint(len(img_coords[0]))
+        icx, icy = img_coords[0][0], img_coords[1][0]
+        print(icx, icy)
+        cv2.circle(self.colour_img, (icy, icx), 2, (255, 0, 0), -1, cv2.LINE_AA)
+        r = [(i, circle.cx, circle.cy, np.sqrt((circle.cx - icx)**2 + (circle.cy - icy)**2)) for i, circle in enumerate(self.circles)]
+        r.sort(key=lambda t: t[3]) # try moving the closest first
+        print(r)
+        print([t[0] for t in r])
+        mask = [True] * len(r)
+        for i in [t[0] for t in r]:
+            c = self.circles[i]
+            mask[i] = False
+            rx, ry = (icx - c.cx), (icy - c.cy)
+            dx, dy = 0, 0
+            '''
+            quick and dirty solution:
+            move horizontally, one pixel at a time, as long
+            as the moving circle wouldn't overlap any other.
+            then do the same vertically. in principle we could
+            try doing it the other way round, both at once, etc.
+            but that'll be slower, so hopefully this is good enough.
+            '''
+            can_move = True
+            while (np.abs(dx) < np.abs(rx)) and can_move:
+                # print("x move: {}".format(can_move), c.cx, dx, rx)
+                if ((icx == c.cx) and (icy == c.cy)):
+                    can_move = False
+                dx = dx + np.sign(rx)
+                if not any(circle.overlap_with(c.cx + np.sign(rx), c.cy, c.r) for circle in [b for a, b in zip(mask, self.circles) if a]):
+                    c.move(c.cx + np.sign(rx), c.cy)
+                    dx = dx + np.sign(rx)
+                else:
+                    can_move = False
+
+            can_move = True
+            while (np.abs(dy) < np.abs(ry)) and can_move:
+                # print("y move: {}".format(can_move), c.cy, dy, ry)
+                if ((icx == c.cx) and (icy == c.cy)):
+                    can_move = False
+                if not any(circle.overlap_with(c.cx, c.cy + np.sign(ry), c.r) for circle in [b for a, b in zip(mask, self.circles) if a]):
+                    c.move(c.cx, c.cy + np.sign(ry))
+                    dy = dy + np.sign(ry)
+                else:
+                    can_move = False
+            
+            mask[i] = True # reset
+
+            # initial test version - doesn't work
+            # while np.abs(dx) < np.abs(rx):
+            #     dx = dx + (1 * np.sign(rx))
+            #     if not any(circle.overlap_with(cx + dy, cy, c.r) for circle in self.circles):
+            #         c.move(cx, cy + dy)
+            # while np.abs(dy) < np.abs(ry):
+            #     dy = dy + (1 * np.sign(ry))
+            #     if not any(circle.overlap_with(cx, cy + dy, c.r) for circle in self.circles):
+            #         c.move(cx, cy + dy)
+
+
+        r = [(i, circle.cx, circle.cy, np.sqrt((circle.cx - icx)**2 + (circle.cy - icy)**2)) for i, circle in enumerate(self.circles)]
+        r.sort(key=lambda t: t[3]) # try moving the closest first
+        print(r)
+                
+
 if __name__ == '__main__':
     # Land colours, sea colours.
     c1 = ['#99001A']
@@ -92,7 +163,7 @@ if __name__ == '__main__':
     shape.img = 255 - shape.img
     shape.guard = 1000
     shape.make_circles(c_idx=range(len(c1)))
-    shape.make_svg('uk-1.svg')
+    # shape.make_svg('uk-1.svg')
 
     # Now load the image again, invert it and fill the sea with circles.
     # shape.read_image('uk.png')

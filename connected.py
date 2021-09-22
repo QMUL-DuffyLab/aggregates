@@ -5,9 +5,9 @@ from trimer import Aggregate
 
 # code adapted from https://www.pyimagesearch.com/2021/02/22/opencv-connected-component-labeling-and-analysis/
 
-input_file = '004_new.bmp'
+input_file = '004.bmp'
 pixel_size = 1 # in nanometres
-trimer_radius = 2.25 # also nm
+trimer_radius = 4.5 # also nm
 image_size = 1024 # in pixels
 rho = (trimer_radius / pixel_size) / image_size
 
@@ -56,5 +56,6 @@ for i in range(0, num_labels):
             ag = Aggregate(componentMask, x, y, w, h, area, n, rho)
             aggregates.append(ag)
             ag.shapefill.make_image('components/{:03d}.jpg'.format(i))
-
+            ag.shapefill.pull_circles()
+            ag.shapefill.make_image('components/{:03d}_pulled.jpg'.format(i))
 

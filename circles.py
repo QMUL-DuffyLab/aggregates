@@ -25,10 +25,10 @@ class Circle:
         d = np.hypot(cx-self.cx, cy-self.cy)
         return d < nn_cutoff
 
-    def draw_circle(self, img):
+    def draw_circle(self, img, r):
         """Write the circle's SVG to the output stream, fo."""
         # next line is for when i figure out how to use cv2 everywhere lol
-        cv2.circle(img, (self.cy, self.cx), 4, (26, 0, 153), -1, cv2.LINE_AA)
+        cv2.circle(img, (self.cy, self.cx), r, (26, 0, 153), -1, cv2.LINE_AA)
 
     def move(self, cx, cy):
         """ move to (cx, cy). assumes we've checked for collisions! """
@@ -38,16 +38,15 @@ class Circle:
 class Circles:
     """A class for drawing circles-inside-a-circle."""
     
-    def __init__(self, width=600, height=600, R=250, n=800, rho_min=0.005,
-                 rho_max=0.05, colours=None):
+    def __init__(self, width=600, height=600, R=250, n=800,
+            rho=0.005, colours=None):
         """Initialize the Circles object.
 
         width, height are the SVG canvas dimensions
         R is the radius of the large circle within which the small circles are
         to fit.
         n is the maximum number of circles to pack inside the large circle.
-        rho_min is rmin/R, giving the minimum packing circle radius.
-        rho_max is rmax/R, giving the maximum packing circle radius.
+        rho is r/R, giving the packing circle radius.
         colours is a list of SVG fill colour specifiers to be referenced by
             the class identifiers c<i>. If None, a default palette is set.
 
@@ -57,7 +56,7 @@ class Circles:
         self.R, self.n = R, n
         # The centre of the canvas
         self.CX, self.CY = self.width // 2, self.height // 2
-        self.rmin, self.rmax = R * rho_min, R * rho_max
+        self.r = R * rho
         self.colours = colours or ['#993300', '#a5c916', '#00AA66', '#FF9900']
         self.circles = []
         # The "guard number": we try to place any given circle this number of
@@ -69,7 +68,7 @@ class Circles:
         col = self.colour_img
         colour_img = self.colour_img.copy()
         for circle in self.circles:
-            circle.draw_circle(colour_img)
+            circle.draw_circle(colour_img, int(self.r))
         cv2.imwrite(filename, colour_img)
         self.colour_img = col
 
@@ -116,15 +115,10 @@ class Circles:
 
         """
 
-        # First choose a set of n random radii and sort them. We use
-        # random.random() * random.random() to favour small circles.
-        r = self.rmin + (self.rmax - self.rmin) * np.random.random(
-                                self.n) * np.random.random(self.n)
-        r[::-1].sort()
         # Do our best to place the circles, larger ones first.
         nplaced = 0
         for i in range(self.n):
-            if self._place_circle(r[i], c_idx):
+            if self._place_circle(self.r, c_idx):
                 nplaced += 1
         # print('{}/{} circles placed successfully.'.format(nplaced, self.n))
         return nplaced

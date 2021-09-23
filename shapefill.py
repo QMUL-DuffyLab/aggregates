@@ -20,7 +20,6 @@ class ShapeFill(Circles):
         """
 
         self.img = img
-        self.masked_img = img
         self.colour_img = cv2.cvtColor(self.img, cv2.COLOR_GRAY2BGR)
         self.width, self.height = np.shape(img)[0], np.shape(img)[1]
         dim = min(self.width, self.height)
@@ -34,8 +33,8 @@ class ShapeFill(Circles):
         if icx+r >= self.width or icy+r >= self.height:
             return False
 
-        if not all((self.masked_img[icx-r,icy], self.masked_img[icx+r,icy],
-                self.masked_img[icx,icy-r], self.masked_img[icx,icy+r])):
+        if not all((self.img[icx-r,icy], self.img[icx+r,icy],
+                self.img[icx,icy-r], self.img[icx,icy+r])):
             return False
         return True
 
@@ -45,7 +44,7 @@ class ShapeFill(Circles):
         x, y = np.ogrid[0:self.width, 0:self.height]
         r2 = (r+1)**2
         mask = (x-icx)**2 + (y-icy)**2 <= r2
-        self.masked_img[mask] = 0
+        self.img[mask] = 0
 
     def remove_circle_mask(self, icx, icy, r):
         """1 all elements of self.img in circle at (icx, icy), radius r."""
@@ -53,7 +52,7 @@ class ShapeFill(Circles):
         x, y = np.ogrid[0:self.width, 0:self.height]
         r2 = (r+1)**2
         mask = (x-icx)**2 + (y-icy)**2 <= r2
-        self.masked_img[mask] = 1
+        self.img[mask] = 1
 
     def _place_circle(self, r, c_idx=None):
         """Attempt to place a circle of radius r within the image figure.
@@ -67,7 +66,7 @@ class ShapeFill(Circles):
             c_idx = range(len(self.colours))
 
         # Get the coordinates of all non-zero image pixels
-        img_coords = np.nonzero(self.masked_img)
+        img_coords = np.nonzero(self.img)
         if not img_coords:
             return False
 
@@ -97,7 +96,7 @@ class ShapeFill(Circles):
         # pick a pixel within the image to act as a centre of gravity
         # note: _place_circle applies a mask which turns the location of
         # each circle black, so this should only pick out unoccupied pixels
-        img_coords = np.nonzero(self.masked_img)
+        img_coords = np.nonzero(self.img)
         ri = np.random.randint(len(img_coords[0]))
         icx, icy = img_coords[0][ri], img_coords[1][ri]
         print("centre pixel: ({}, {})".format(icx, icy))

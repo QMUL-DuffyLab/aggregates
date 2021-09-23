@@ -63,7 +63,7 @@ class Aggregate:
         self.w = w
         self.h = h
         self.area = area
-        self.shapefill = ShapeFill(image, n=n, rho_min=rho, rho_max=rho, colours=['#99001A'])
+        self.shapefill = ShapeFill(image, n=n, rho=rho, colours=['#99001A'])
         self.shapefill.guard = 500
 
     def _adj(self):

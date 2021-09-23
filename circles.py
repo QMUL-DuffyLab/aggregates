@@ -126,7 +126,8 @@ class Circles:
         for i in range(self.n):
             if self._place_circle(r[i], c_idx):
                 nplaced += 1
-        print('{}/{} circles placed successfully.'.format(nplaced, self.n))
+        # print('{}/{} circles placed successfully.'.format(nplaced, self.n))
+        return nplaced
                 
 
 if __name__ == '__main__':

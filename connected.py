@@ -10,6 +10,8 @@ pixel_size = 1 # in nanometres
 trimer_radius = 4.5 # also nm
 image_size = 1024 # in pixels
 rho = (trimer_radius / pixel_size) / image_size
+# maximum number of times to pull the circles around when packing them
+max_pulls = 5
 
 np.set_printoptions(threshold=sys.maxsize)
 img = cv2.imread(input_file, 0)
@@ -56,6 +58,16 @@ for i in range(0, num_labels):
             ag = Aggregate(componentMask, x, y, w, h, area, n, rho)
             aggregates.append(ag)
             ag.shapefill.make_image('components/{:03d}.jpg'.format(i))
-            ag.shapefill.pull_circles()
+            nplaced = ag.shapefill.make_circles()
+            nplaced_total = nplaced
+            print('First run: {}/{} circles placed.'.format(nplaced_total, n))
+            pulls = 0
+            while nplaced != 0 and pulls <= max_pulls:
+                ag.shapefill.pull_circles()
+                nplaced = ag.shapefill.make_circles()
+                nplaced_total = nplaced_total + nplaced
+                print('{} circles placed.'.format(nplaced))
+                pulls += 1
+            print('Done. {}/{} total circles placed.'.format(nplaced_total, n))
             ag.shapefill.make_image('components/{:03d}_pulled.jpg'.format(i))
 

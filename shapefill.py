@@ -20,6 +20,7 @@ class ShapeFill(Circles):
         """
 
         self.img = img
+        self.masked_img = img
         self.colour_img = cv2.cvtColor(self.img, cv2.COLOR_GRAY2BGR)
         self.width, self.height = np.shape(img)[0], np.shape(img)[1]
         dim = min(self.width, self.height)
@@ -33,8 +34,8 @@ class ShapeFill(Circles):
         if icx+r >= self.width or icy+r >= self.height:
             return False
 
-        if not all((self.img[icx-r,icy], self.img[icx+r,icy],
-                self.img[icx,icy-r], self.img[icx,icy+r])):
+        if not all((self.masked_img[icx-r,icy], self.masked_img[icx+r,icy],
+                self.masked_img[icx,icy-r], self.masked_img[icx,icy+r])):
             return False
         return True
 
@@ -44,7 +45,15 @@ class ShapeFill(Circles):
         x, y = np.ogrid[0:self.width, 0:self.height]
         r2 = (r+1)**2
         mask = (x-icx)**2 + (y-icy)**2 <= r2
-        self.img[mask] = 0
+        self.masked_img[mask] = 0
+
+    def remove_circle_mask(self, icx, icy, r):
+        """1 all elements of self.img in circle at (icx, icy), radius r."""
+
+        x, y = np.ogrid[0:self.width, 0:self.height]
+        r2 = (r+1)**2
+        mask = (x-icx)**2 + (y-icy)**2 <= r2
+        self.masked_img[mask] = 1
 
     def _place_circle(self, r, c_idx=None):
         """Attempt to place a circle of radius r within the image figure.
@@ -58,7 +67,7 @@ class ShapeFill(Circles):
             c_idx = range(len(self.colours))
 
         # Get the coordinates of all non-zero image pixels
-        img_coords = np.nonzero(self.img)
+        img_coords = np.nonzero(self.masked_img)
         if not img_coords:
             return False
 
@@ -88,18 +97,19 @@ class ShapeFill(Circles):
         # pick a pixel within the image to act as a centre of gravity
         # note: _place_circle applies a mask which turns the location of
         # each circle black, so this should only pick out unoccupied pixels
-        img_coords = np.nonzero(self.img)
+        img_coords = np.nonzero(self.masked_img)
         # i = np.random.randint(len(img_coords[0]))
         icx, icy = img_coords[0][0], img_coords[1][0]
         print(icx, icy)
         cv2.circle(self.colour_img, (icy, icx), 2, (255, 0, 0), -1, cv2.LINE_AA)
         r = [(i, circle.cx, circle.cy, np.sqrt((circle.cx - icx)**2 + (circle.cy - icy)**2)) for i, circle in enumerate(self.circles)]
         r.sort(key=lambda t: t[3]) # try moving the closest first
-        print(r)
-        print([t[0] for t in r])
+        # print(r)
+        # print([t[0] for t in r])
         mask = [True] * len(r)
         for i in [t[0] for t in r]:
             c = self.circles[i]
+            self.remove_circle_mask(c.cx, c.cy, c.r)
             mask[i] = False
             rx, ry = (icx - c.cx), (icy - c.cy)
             dx, dy = 0, 0
@@ -117,39 +127,38 @@ class ShapeFill(Circles):
                 if ((icx == c.cx) and (icy == c.cy)):
                     can_move = False
                 dx = dx + np.sign(rx)
-                if not any(circle.overlap_with(c.cx + np.sign(rx), c.cy, c.r) for circle in [b for a, b in zip(mask, self.circles) if a]):
-                    c.move(c.cx + np.sign(rx), c.cy)
-                    dx = dx + np.sign(rx)
+                if self._circle_fits(c.cx + np.sign(rx), c.cy, c.r):
+                    if not any(circle.overlap_with(c.cx + np.sign(rx), c.cy, c.r) for circle in [b for a, b in zip(mask, self.circles) if a]):
+                        c.move(c.cx + np.sign(rx), c.cy)
+                        dx = dx + np.sign(rx)
+                    else:
+                        can_move = False
                 else:
                     can_move = False
+                # else:
+                #     can_move = False
 
+            # self.apply_circle_mask(c.cx, c.cy, c.r)
             can_move = True
             while (np.abs(dy) < np.abs(ry)) and can_move:
                 # print("y move: {}".format(can_move), c.cy, dy, ry)
                 if ((icx == c.cx) and (icy == c.cy)):
                     can_move = False
-                if not any(circle.overlap_with(c.cx, c.cy + np.sign(ry), c.r) for circle in [b for a, b in zip(mask, self.circles) if a]):
-                    c.move(c.cx, c.cy + np.sign(ry))
-                    dy = dy + np.sign(ry)
+                if self._circle_fits(c.cx, c.cy + np.sign(ry), c.r):
+                    if not any(circle.overlap_with(c.cx, c.cy + np.sign(ry), c.r) for circle in [b for a, b in zip(mask, self.circles) if a]):
+                        c.move(c.cx, c.cy + np.sign(ry))
+                        dy = dy + np.sign(ry)
+                    else:
+                        can_move = False
                 else:
                     can_move = False
             
+            self.apply_circle_mask(c.cx, c.cy, c.r)
             mask[i] = True # reset
-
-            # initial test version - doesn't work
-            # while np.abs(dx) < np.abs(rx):
-            #     dx = dx + (1 * np.sign(rx))
-            #     if not any(circle.overlap_with(cx + dy, cy, c.r) for circle in self.circles):
-            #         c.move(cx, cy + dy)
-            # while np.abs(dy) < np.abs(ry):
-            #     dy = dy + (1 * np.sign(ry))
-            #     if not any(circle.overlap_with(cx, cy + dy, c.r) for circle in self.circles):
-            #         c.move(cx, cy + dy)
-
 
         r = [(i, circle.cx, circle.cy, np.sqrt((circle.cx - icx)**2 + (circle.cy - icy)**2)) for i, circle in enumerate(self.circles)]
         r.sort(key=lambda t: t[3]) # try moving the closest first
-        print(r)
+        # print(r)
                 
 
 if __name__ == '__main__':

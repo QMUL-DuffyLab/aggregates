@@ -1,25 +1,39 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import cv2
 import sys
+import argparse
 import numpy as np
 from trimer import Aggregate
 
 # code adapted from https://www.pyimagesearch.com/2021/02/22/opencv-connected-component-labeling-and-analysis/
 
-input_file = '004.bmp'
-pixel_size = 1 # in nanometres
-trimer_radius = 4.5 # also nm
-image_size = 1024 # in pixels
-rho = (trimer_radius / pixel_size) / image_size
-# maximum number of times to pull the circles around when packing them
-max_pulls = 5
+parser = argparse.ArgumentParser(description="")
+parser.add_argument("-i", "--input_file", default="004.bmp", help="Input filename")
+parser.add_argument("-s", "--image_size", type=int, default=1000, help="Size of the imaged area - default is 1μm. We assume a square area!")
+parser.add_argument("-p", "--pixel_size", default=None, help="Size of one pixel in nanometres")
+parser.add_argument("-t", "--trimer_radius", type=float, default=4.5, help="Radius of one trimer in nanometres")
+parser.add_argument("-mp", "--max_pulls", type=int, default=5, help="Maximum number of times to pull circles around when packing")
 
-np.set_printoptions(threshold=sys.maxsize)
-img = cv2.imread(input_file, 0)
-img = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)[1]  # ensure binary
-# img is now a big array that's either 0 or 255
+args = parser.parse_args()
+
+img = cv2.imread(args.input_file, 0)
+
+if args.pixel_size is not None:
+    assert (float(np.shape(img)[0]) / args.image_size == args.pixel_size), "Image dimensions not compatible with parameters - image size in pixels = {}, image size in nm = {}, pixel size given = {}. Fix it idiot.".format(np.shape(img)[0], args.image_size, args.pixel_size)
+else:
+    args.pixel_size = float(np.shape(img)[0]) / args.image_size
+
+# the size as a proportion of the image for each circle (trimer):
+# we can ignore the image dimensions here because we give both of
+# these quantities in nanometres
+rho = (args.trimer_radius / args.image_size)
+
+# make img into a binary array - either 0 or 255
+img = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)[1]
 output = cv2.connectedComponentsWithStats(img)
 (num_labels, labels_im, stats, centroids) = output
-print("Number of aggregates = {}".format(num_labels))
+print("Number of aggregates found = {}".format(num_labels))
 aggregates = []
 
 for i in range(0, num_labels):
@@ -38,13 +52,6 @@ for i in range(0, num_labels):
         h = stats[i, cv2.CC_STAT_HEIGHT]
         area = stats[i, cv2.CC_STAT_AREA]
         print("[INFO] {}: area = {}".format(text, area))
-        (cX, cY) = centroids[i]
-        # clone our original image (so we can draw on it) and then draw
-        # a bounding box surrounding the connected component along with
-        # a circle corresponding to the centroid
-        output = img.copy()
-        cv2.rectangle(output, (x, y), (x + w, y + h), (0, 255, 0), 3)
-        cv2.circle(output, (int(cX), int(cY)), 4, (0, 0, 255), -1)
         # construct a mask for the current connected component by
         # finding a pixels in the labels array that have the current
         # connected component ID
@@ -53,7 +60,7 @@ for i in range(0, num_labels):
         # grain to get a rough estimate of how many circles to try and place
         # also note that 0.9 might still be too high - impossible to pack
         # 100% of the area with circles
-        n = int(0.9 * area / (np.pi * (trimer_radius / pixel_size)**2))
+        n = int(0.9 * area / (np.pi * (args.trimer_radius / args.pixel_size)**2))
         if (n > 0):
             ag = Aggregate(componentMask, x, y, w, h, area, n, rho)
             aggregates.append(ag)
@@ -62,7 +69,7 @@ for i in range(0, num_labels):
             nplaced_total = nplaced
             print('First run: {}/{} circles placed.'.format(nplaced_total, n))
             pulls = 0
-            while nplaced != 0 and pulls <= max_pulls:
+            while nplaced != 0 and pulls <= args.max_pulls:
                 ag.shapefill.pull_circles()
                 nplaced = ag.shapefill.make_circles()
                 nplaced_total = nplaced_total + nplaced

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import numpy as np
 from shapefill import ShapeFill
 
 class Trimer():
@@ -56,15 +57,75 @@ class Aggregate:
     (monochrome with only this aggregate) then pass to shapefill,
     add the circles and adjacency info to the aggregate as well.
     '''
-    def __init__(self, image, x, y, w, h, area, n, rho):
-        self.image = image
+    def __init__(self, img, x, y, w, h, area, n, rho, max_pulls=5):
+        self.img = img
         self.x = x
         self.y = y
         self.w = w
         self.h = h
         self.area = area
-        self.shapefill = ShapeFill(image, n=n, rho=rho, colours=['#99001A'])
+        self.max_pulls = max_pulls
+        self.shapefill = ShapeFill(img, n=n, rho=rho, colours=['#99001A'])
+        self.fd = self.fractal_dimension()
         self.shapefill.guard = 500
+
+    def pack(self, n):
+        '''
+        pack the aggregate with circles by
+        placing and then pulling them around.
+        '''
+        nplaced = self.shapefill.make_circles()
+        nplaced_total = nplaced
+        pulls = 0
+        print('First run: {}/{} circles placed.'.format(nplaced_total, n))
+        while nplaced != 0 and pulls <= self.max_pulls and nplaced_total <= n:
+            self.shapefill.pull_circles()
+            nplaced = self.shapefill.make_circles()
+            nplaced_total += nplaced
+            print('{} circles placed.'.format(nplaced))
+            pulls += 1
+        print('Done. {}/{} total circles placed.'.format(nplaced_total, n))
+
+    def fractal_dimension(self):
+        '''
+	https://gist.github.com/rougier/e5eafc276a4e54f516ed5559df4242c0
+        '''
+
+        # our image is binary but it's 0 and 255: fix that
+        Z = self.img / 255
+
+        # Only for 2d image
+        assert(len(self.img.shape) == 2)
+
+        # From https://github.com/rougier/numpy-100 (#87)
+        def boxcount(Z, k):
+            S = np.add.reduceat(
+                np.add.reduceat(Z, np.arange(0, Z.shape[0], k), axis=0),
+                                   np.arange(0, Z.shape[1], k), axis=1)
+            # We count non-empty (0) and non-full boxes (k*k)
+            return len(np.where((S > 0) & (S < k*k))[0])
+
+        # Minimal dimension of image
+        p = min(Z.shape)
+
+        # Greatest power of 2 less than or equal to p
+        n = 2**np.floor(np.log(p)/np.log(2))
+
+        # Extract the exponent
+        n = int(np.log(n)/np.log(2))
+
+        # Build successive box sizes (from 2**n down to 2**1)
+        sizes = 2**np.arange(n, 1, -1)
+
+        # Actual box counting with decreasing size
+        counts = []
+        for size in sizes:
+            counts.append(boxcount(Z, size))
+
+        print(counts)
+        # Fit the successive log(sizes) with log (counts)
+        coeffs = np.polyfit(np.log(sizes), np.log(counts), 1)
+        return -coeffs[0]
 
     def _adj(self):
         '''

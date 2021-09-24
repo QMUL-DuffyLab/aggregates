@@ -29,6 +29,7 @@ else:
 # these quantities in nanometres
 rho = (args.trimer_radius / args.image_size)
 
+np.set_printoptions(threshold=sys.maxsize)
 # make img into a binary array - either 0 or 255
 img = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)[1]
 output = cv2.connectedComponentsWithStats(img)
@@ -46,6 +47,7 @@ for i in range(0, num_labels):
         # component
         # extract the connected component statistics and centroid for
         # the current label
+        print(stats[i])
         x = stats[i, cv2.CC_STAT_LEFT]
         y = stats[i, cv2.CC_STAT_TOP]
         w = stats[i, cv2.CC_STAT_WIDTH]
@@ -56,25 +58,16 @@ for i in range(0, num_labels):
         # finding a pixels in the labels array that have the current
         # connected component ID
         componentMask = (labels_im == i).astype("uint8") * 255
+        # get the edge of the grain to do fractal dimension calc
+        # edge = cv2.Canny(componentMask, 100, 200)
         # compare the area of a single trimer to the area of the
         # grain to get a rough estimate of how many circles to try and place
-        # also note that 0.9 might still be too high - impossible to pack
-        # 100% of the area with circles
-        n = int(0.9 * area / (np.pi * (args.trimer_radius / args.pixel_size)**2))
+        n = int(area / (np.pi * (args.trimer_radius / args.pixel_size)**2))
         if (n > 0):
-            ag = Aggregate(componentMask, x, y, w, h, area, n, rho)
-            aggregates.append(ag)
+            ag = Aggregate(componentMask, x, y, w, h, area, n, rho, args.max_pulls)
+            print("Fractal dimension = {}".format(ag.fd))
             ag.shapefill.make_image('components/{:03d}.jpg'.format(i))
-            nplaced = ag.shapefill.make_circles()
-            nplaced_total = nplaced
-            print('First run: {}/{} circles placed.'.format(nplaced_total, n))
-            pulls = 0
-            while nplaced != 0 and pulls <= args.max_pulls:
-                ag.shapefill.pull_circles()
-                nplaced = ag.shapefill.make_circles()
-                nplaced_total = nplaced_total + nplaced
-                print('{} circles placed.'.format(nplaced))
-                pulls += 1
-            print('Done. {}/{} total circles placed.'.format(nplaced_total, n))
+            ag.pack(n)
             ag.shapefill.make_image('components/{:03d}_pulled.jpg'.format(i))
+            aggregates.append(ag)
 

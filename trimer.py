@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import numpy as np
 from shapefill import ShapeFill
+import cv2
 
 class Trimer():
     '''
@@ -127,13 +128,30 @@ class Aggregate:
         coeffs = np.polyfit(np.log(sizes), np.log(counts), 1)
         return -coeffs[0]
 
-    def _adj(self):
+    def _adj(self, nn_cutoff):
         '''
         construct an adjacency matrix
         '''
-        nn_cutoff = 1.2 * rho # rho won't work i don't think, need to work out r in pixels
         adj = np.zeros((len(self.shapefill.circles), len(self.shapefill.circles)))
-        for c in self.shapefill.circles:
-            # this makes no sense yet lol
-            neighbours = np.where([circle.is_nn(self.CX + cx, self.CY + cy, nn_cutoff) for c2 in self.shapefill.circles])
-            adj[i] = neighbours
+        for i, c in enumerate(self.shapefill.circles):
+            neighbours = np.array([c.is_nn(c2.cx, c2.cy, nn_cutoff) for c2 in self.shapefill.circles])
+            adj[i] = neighbours.astype(int)
+
+        # the above will make each circle its own neighbour
+        for i in range(len(self.shapefill.circles)):
+            adj[i][i] = 0
+
+        return adj
+
+    def make_neighbours(self, nn_cutoff, filename):
+        '''
+        draw all the neighbours onto the image so we can check!
+        '''
+        col = self.shapefill.colour_img.copy()
+        [c1.draw_neighbour(c2.cx, c2.cy, col) for c1 in self.shapefill.circles for c2 in self.shapefill.circles if c1.is_nn(c2.cx, c2.cy, nn_cutoff)]
+        cv2.imwrite(filename, col)
+        self.shapefill.colour_img = col
+        # for i in range(len(self.shapefill.circles)):
+        #     for j in range(i, len(self.shapefill.circles)):
+        #         if adj[i][j]:
+        #             self.shapefill.circles[i].draw_neighbour(self.shapefill.circles[j].cx, self.shapefill.circles[j].cy, self.shapefill.colour_img)

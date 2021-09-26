@@ -21,9 +21,12 @@ class Circle:
 
     def is_nn(self, cx, cy, nn_cutoff):
         """Do we consider this circle as a neighbour to the circle (cx, cy)?"""
-
         d = np.hypot(cx-self.cx, cy-self.cy)
         return d < nn_cutoff
+
+    def draw_neighbour(self, cx, cy, img):
+        """ draw a line between two neighbours """
+        cv2.line(img, (self.cy, self.cx), (cy, cx), (232, 139, 39))
 
     def draw_circle(self, img, r):
         """Write the circle's SVG to the output stream, fo."""

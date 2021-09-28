@@ -58,7 +58,7 @@ class Aggregate:
     (monochrome with only this aggregate) then pass to shapefill,
     add the circles and adjacency info to the aggregate as well.
     '''
-    def __init__(self, img, x, y, w, h, area, n, rho, max_pulls=5):
+    def __init__(self, img, x, y, w, h, area, n, rho, nn_cutoff, max_pulls):
         self.img = img
         self.x = x
         self.y = y
@@ -68,6 +68,7 @@ class Aggregate:
         self.max_pulls = max_pulls
         self.shapefill = ShapeFill(img, n=n, rho=rho, colours=['#99001A'])
         self.fd = self.fractal_dimension()
+        self.A = self._adj(nn_cutoff)
         self.shapefill.guard = 500
 
     def pack(self, n):
@@ -148,10 +149,7 @@ class Aggregate:
         draw all the neighbours onto the image so we can check!
         '''
         col = self.shapefill.colour_img.copy()
+        [c1.draw_circle(col, int(c1.r)) for c1 in self.shapefill.circles]
         [c1.draw_neighbour(c2.cx, c2.cy, col) for c1 in self.shapefill.circles for c2 in self.shapefill.circles if c1.is_nn(c2.cx, c2.cy, nn_cutoff)]
         cv2.imwrite(filename, col)
         self.shapefill.colour_img = col
-        # for i in range(len(self.shapefill.circles)):
-        #     for j in range(i, len(self.shapefill.circles)):
-        #         if adj[i][j]:
-        #             self.shapefill.circles[i].draw_neighbour(self.shapefill.circles[j].cx, self.shapefill.circles[j].cy, self.shapefill.colour_img)

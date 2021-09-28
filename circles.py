@@ -68,12 +68,10 @@ class Circles:
 
     def make_image(self, filename, *args, **kwargs):
         """ add the circles to the image and write it out. """
-        col = self.colour_img
         colour_img = self.colour_img.copy()
         for circle in self.circles:
             circle.draw_circle(colour_img, int(self.r))
         cv2.imwrite(filename, colour_img)
-        self.colour_img = col
 
     def _place_circle(self, r, c_idx=None):
         """Attempt to place a circle of radius r within the larger circle.

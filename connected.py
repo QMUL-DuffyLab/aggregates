@@ -67,13 +67,12 @@ for i in range(0, num_labels):
         # grain to get a rough estimate of how many circles to try and place
         n = int(area / (np.pi * (args.trimer_radius / args.pixel_size)**2))
         if (n > 0):
-            ag = Aggregate(componentMask, x, y, w, h, area, n, rho, args.max_pulls)
+            ag = Aggregate(componentMask, x, y, w, h, area, n, rho, nn_cutoff, args.max_pulls)
             print("Fractal dimension = {}".format(ag.fd))
             ag.shapefill.make_image('components/{:03d}.jpg'.format(i))
             ag.pack(n)
             ag.shapefill.make_image('components/{:03d}_pulled.jpg'.format(i))
-            adj = ag._adj(nn_cutoff)
-            print(adj)
+            print(ag.A)
             ag.make_neighbours(nn_cutoff,'components/{:03d}_neighbours.jpg'.format(i))
             aggregates.append(ag)
 

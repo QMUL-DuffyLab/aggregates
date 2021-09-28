@@ -28,9 +28,10 @@ else:
 # we can ignore the image dimensions here because we give both of
 # these quantities in nanometres
 rho = (args.trimer_radius / args.image_size)
+r = args.trimer_radius * args.pixel_size
 # 2.5 bc we just compare the hypnotenuse to the nn_cutoff
 # so this is effectively doing (2 * (1.25 r))
-nn_cutoff = 2.5 * args.trimer_radius / args.pixel_size
+nn_cutoff = 2.5 * r
 
 np.set_printoptions(threshold=sys.maxsize)
 # make img into a binary array - either 0 or 255
@@ -67,12 +68,12 @@ for i in range(0, num_labels):
         # grain to get a rough estimate of how many circles to try and place
         n = int(area / (np.pi * (args.trimer_radius / args.pixel_size)**2))
         if (n > 0):
-            ag = Aggregate(componentMask, x, y, w, h, area, n, rho, nn_cutoff, args.max_pulls)
+            ag = Aggregate(componentMask, x, y, w, h, area, n, r, nn_cutoff, args.max_pulls)
             print("Fractal dimension = {}".format(ag.fd))
             ag.shapefill.make_image('components/{:03d}.jpg'.format(i))
             ag.pack(n)
             ag.shapefill.make_image('components/{:03d}_pulled.jpg'.format(i))
-            print(ag.A)
-            ag.make_neighbours(nn_cutoff,'components/{:03d}_neighbours.jpg'.format(i))
+            ag.A = ag.adj(nn_cutoff)
+            ag.make_neighbours('components/{:03d}_neighbours.jpg'.format(i))
             aggregates.append(ag)
 

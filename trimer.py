@@ -58,7 +58,7 @@ class Aggregate:
     (monochrome with only this aggregate) then pass to shapefill,
     add the circles and adjacency info to the aggregate as well.
     '''
-    def __init__(self, img, x, y, w, h, area, n, rho, nn_cutoff, max_pulls):
+    def __init__(self, img, x, y, w, h, area, n, r, nn_cutoff, max_pulls):
         self.img = img
         self.x = x
         self.y = y
@@ -66,9 +66,8 @@ class Aggregate:
         self.h = h
         self.area = area
         self.max_pulls = max_pulls
-        self.shapefill = ShapeFill(img, n=n, rho=rho, colours=['#99001A'])
+        self.shapefill = ShapeFill(img, n=n, r=r, colours=['#99001A'])
         self.fd = self.fractal_dimension()
-        self.A = self._adj(nn_cutoff)
         self.shapefill.guard = 500
 
     def pack(self, n):
@@ -80,7 +79,7 @@ class Aggregate:
         nplaced_total = nplaced
         pulls = 0
         print('First run: {}/{} circles placed.'.format(nplaced_total, n))
-        while nplaced != 0 and pulls <= self.max_pulls and nplaced_total <= n:
+        while pulls <= self.max_pulls and nplaced_total <= n:
             self.shapefill.pull_circles()
             nplaced = self.shapefill.make_circles()
             nplaced_total += nplaced
@@ -129,7 +128,7 @@ class Aggregate:
         coeffs = np.polyfit(np.log(sizes), np.log(counts), 1)
         return -coeffs[0]
 
-    def _adj(self, nn_cutoff):
+    def adj(self, nn_cutoff):
         '''
         construct an adjacency matrix
         '''
@@ -144,12 +143,18 @@ class Aggregate:
 
         return adj
 
-    def make_neighbours(self, nn_cutoff, filename):
+    def make_neighbours(self, filename):
         '''
         draw all the neighbours onto the image so we can check!
         '''
+        if len(self.shapefill.circles) < 2: # no neighbours
+            return None
+
         col = self.shapefill.colour_img.copy()
-        [c1.draw_circle(col, int(c1.r)) for c1 in self.shapefill.circles]
-        [c1.draw_neighbour(c2.cx, c2.cy, col) for c1 in self.shapefill.circles for c2 in self.shapefill.circles if c1.is_nn(c2.cx, c2.cy, nn_cutoff)]
+        for i, c1 in enumerate(self.shapefill.circles):
+            c1.draw_circle(col, int(c1.r))
+            for j, c2 in enumerate(self.shapefill.circles):
+                if self.A[i][j]:
+                    c1.draw_neighbour(c2.cx, c2.cy, col)
         cv2.imwrite(filename, col)
         self.shapefill.colour_img = col

@@ -1,29 +1,63 @@
-from PIL import Image
 import numpy as np
-from circles import Circle, Circles
 import cv2
 
-class ShapeFill(Circles):
+class Circle:
+    """A little class representing an SVG circle."""
+
+    def __init__(self, cx, cy, r, icolour=None):
+        """Initialize the circle with its centre, (cx,cy) and radius, r.
+
+        icolour is the index of the circle's colour.
+
+        """
+        self.cx, self.cy, self.r = cx, cy, r
+        self.icolour = icolour
+
+    def overlap_with(self, cx, cy, r):
+        """Does the circle overlap with another of radius r at (cx, cy)?"""
+
+        d = np.hypot(cx-self.cx, cy-self.cy)
+        return d < r + self.r
+
+    def is_nn(self, cx, cy, nn_cutoff):
+        """Do we consider this circle as a neighbour to the circle (cx, cy)?"""
+        d = np.hypot(cx-self.cx, cy-self.cy)
+        return d < nn_cutoff
+
+    def draw_neighbour(self, cx, cy, img):
+        """ draw a line between two neighbours """
+        cv2.line(img, (self.cy, self.cx), (cy, cx), (232, 139, 39))
+
+    def draw_circle(self, img, r):
+        """Write the circle's SVG to the output stream, fo."""
+        # next line is for when i figure out how to use cv2 everywhere lol
+        cv2.circle(img, (self.cy, self.cx), r, (26, 0, 153), -1, cv2.LINE_AA)
+
+    def move(self, cx, cy):
+        """ move to (cx, cy). assumes we've checked for collisions! """
+        self.cx = cx
+        self.cy = cy
+
+
+class ShapeFill():
     """A class for filling a shape with circles."""
 
-    def __init__(self, img, *args, **kwargs):
+    def __init__(self, img, r, n, colours=None, *args, **kwargs):
         """Initialize the class with an image specified by filename.
 
         The image should be white on a black background.
-
-        The maximum and minimum circle sizes are given by rho_min and rho_max
-        which are proportions of the minimum image dimension.
+        Circle radius is r - in pixels
         The maximum number of circles to pack is given by n
-        colours is a list of SVG fill colour specifiers (a default palette is
-        used if this argument is not provided).
-
+        colours is a list of RGB hex codes (currently unused)
         """
 
         self.img = img
         self.colour_img = cv2.cvtColor(self.img, cv2.COLOR_GRAY2BGR)
+        self.r, self.n = r, n
         self.width, self.height = np.shape(img)[0], np.shape(img)[1]
-        dim = min(self.width, self.height)
-        super().__init__(self.width, self.height, dim, *args, **kwargs)
+        self.guard = 500
+        self.circles = []
+        self.colours = colours or ['#99001A', '#278BE8','#F2D33C','#832591','#F28FEA']
 
     def _circle_fits(self, icx, icy, r):
         """If I fits, I sits."""
@@ -89,6 +123,22 @@ class ShapeFill(Circles):
         # print('guard reached.')
         return False
 
+    def make_circles(self, c_idx=None):
+        """Place the little circles inside the big one.
+
+        c_idx is a list of colour indexes (into the self.colours list) from
+        which to select random colours for the circles. If None, use all
+        the colours in self.colours.
+
+        """
+
+        nplaced = 0
+        for i in range(self.n):
+            if self._place_circle(self.r, c_idx):
+                nplaced += 1
+        # print('{}/{} circles placed successfully.'.format(nplaced, self.n))
+        return nplaced
+
     def pull_circles(self):
         '''
         pull all the circles towards a given point to make space.
@@ -145,24 +195,11 @@ class ShapeFill(Circles):
             
             self.apply_circle_mask(c.cx, c.cy, c.r)
             mask[i] = True # reset the mask
-                
 
-if __name__ == '__main__':
-    # Land colours, sea colours.
-    c1 = ['#99001A']
-    c2 = ['#173f5f', '#20639b', '#3caea3']
+    def make_image(self, filename, *args, **kwargs):
+        """ add the circles to the image and write it out. """
+        colour_img = self.colour_img.copy()
+        for circle in self.circles:
+            circle.draw_circle(colour_img, int(self.r))
+        cv2.imwrite(filename, colour_img)
 
-    # First fill the land silhouette.
-    shape = ShapeFill('004_new.bmp', n=3000, rho_min=0.0045, rho_max=0.0045, colours=c1+c2)
-    # expects black shape on white bg?
-    shape.img = 255 - shape.img
-    shape.guard = 1000
-    shape.make_circles(c_idx=range(len(c1)))
-    # shape.make_svg('uk-1.svg')
-
-    # Now load the image again, invert it and fill the sea with circles.
-    # shape.read_image('uk.png')
-    # shape.n = 5000
-    # shape.make_circles(c_idx=[len(c1)+i for i in range(len(c2))])
-    # shape.make_svg('uk-2.svg')
-    

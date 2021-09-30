@@ -38,11 +38,6 @@ class QuenchedTrimer(Trimer):
         '''
         return self.num_levels
 
-    def get_decay_time(self):
-        return self.decay_time
-
-    def get_neighbours(self):
-        return self.neighbours
 
     def _construct_adjacency_matrix(self):
         '''
@@ -65,27 +60,8 @@ class Aggregate:
         self.w = w
         self.h = h
         self.area = area
-        self.max_pulls = max_pulls
-        self.shapefill = ShapeFill(img, n=n, r=r, colours=['#99001A'])
+        self.shapefill = ShapeFill(img, n=n, r=r, max_pulls=max_pulls, colours=['#99001A'])
         self.fd = self.fractal_dimension()
-        self.shapefill.guard = 500
-
-    def pack(self, n):
-        '''
-        pack the aggregate with circles by
-        placing and then pulling them around.
-        '''
-        nplaced = self.shapefill.make_circles()
-        nplaced_total = nplaced
-        pulls = 0
-        print('First run: {}/{} circles placed.'.format(nplaced_total, n))
-        while pulls <= self.max_pulls and nplaced_total <= n:
-            self.shapefill.pull_circles()
-            nplaced = self.shapefill.make_circles()
-            nplaced_total += nplaced
-            print('{} circles placed.'.format(nplaced))
-            pulls += 1
-        print('Done. {}/{} total circles placed.'.format(nplaced_total, n))
 
     def fractal_dimension(self):
         '''
@@ -123,7 +99,6 @@ class Aggregate:
         for size in sizes:
             counts.append(boxcount(Z, size))
 
-        print(counts)
         # Fit the successive log(sizes) with log (counts)
         coeffs = np.polyfit(np.log(sizes), np.log(counts), 1)
         return -coeffs[0]

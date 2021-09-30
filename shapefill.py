@@ -42,7 +42,7 @@ class Circle:
 class ShapeFill():
     """A class for filling a shape with circles."""
 
-    def __init__(self, img, r, n, colours=None, *args, **kwargs):
+    def __init__(self, img, r, n, max_pulls=10, colours=None, *args, **kwargs):
         """Initialize the class with an image specified by filename.
 
         The image should be white on a black background.
@@ -56,6 +56,7 @@ class ShapeFill():
         self.r, self.n = r, n
         self.width, self.height = np.shape(img)[0], np.shape(img)[1]
         self.guard = 500
+        self.max_pulls = max_pulls
         self.circles = []
         self.colours = colours or ['#99001A', '#278BE8','#F2D33C','#832591','#F28FEA']
 
@@ -195,6 +196,23 @@ class ShapeFill():
             
             self.apply_circle_mask(c.cx, c.cy, c.r)
             mask[i] = True # reset the mask
+
+    def pack(self):
+        '''
+        pack the aggregate with circles by
+        placing and then pulling them around.
+        '''
+        nplaced = self.make_circles()
+        nplaced_total = nplaced
+        pulls = 0
+        print('First run: {}/{} circles placed.'.format(nplaced_total, self.n))
+        while pulls <= self.max_pulls and nplaced_total <= self.n:
+            self.pull_circles()
+            nplaced = self.make_circles()
+            nplaced_total += nplaced
+            print('{} circles placed.'.format(nplaced))
+            pulls += 1
+        print('Done. {}/{} total circles placed.'.format(nplaced_total, self.n))
 
     def make_image(self, filename, *args, **kwargs):
         """ add the circles to the image and write it out. """

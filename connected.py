@@ -12,15 +12,19 @@ parser = argparse.ArgumentParser(description="")
 parser.add_argument("-i", "--input_file", default="004.bmp", help="Input filename")
 parser.add_argument("-s", "--image_size", type=int, default=1000, help="Size of the imaged area - default is 1μm. We assume a square area!")
 parser.add_argument("-p", "--pixel_size", default=None, help="Size of one pixel in nanometres")
-parser.add_argument("-t", "--trimer_radius", type=float, default=4.5, help="Radius of one trimer in nanometres")
-parser.add_argument("-mp", "--max_pulls", type=int, default=5, help="Maximum number of times to pull circles around when packing")
+parser.add_argument("-t", "--trimer_radius", type=float, default=5.0, help="Radius of one trimer in nanometres")
+parser.add_argument("-mp", "--max_pulls", type=int, default=10, help="Maximum number of times to pull circles around when packing")
 
 args = parser.parse_args()
 
 img = cv2.imread(args.input_file, 0)
 
 if args.pixel_size is not None:
-    assert (float(np.shape(img)[0]) / args.image_size == args.pixel_size), "Image dimensions not compatible with parameters - image size in pixels = {}, image size in nm = {}, pixel size given = {}. Fix it idiot.".format(np.shape(img)[0], args.image_size, args.pixel_size)
+    assert (float(np.shape(img)[0]) / args.image_size == args.pixel_size),\
+    '''Image dimensions not compatible with parameters -
+     image size in pixels = {}, image size in nm = {},
+     pixel size given = {}. Fix it idiot.'''.format(
+            np.shape(img)[0], args.image_size, args.pixel_size)
 else:
     args.pixel_size = float(np.shape(img)[0]) / args.image_size
 
@@ -46,20 +50,15 @@ for i in range(0, num_labels):
             continue
         # otherwise, we are examining an actual connected component
         else:
-        	text = "examining component {}/{}".format(i, num_labels)
-        # print a status message update for the current connected
-        # component
-        # extract the connected component statistics and centroid for
-        # the current label
-        print(stats[i])
+            print("examining component {}/{}".format(i, num_labels))
+        # extract connected component statistics for the current label
         x = stats[i, cv2.CC_STAT_LEFT]
         y = stats[i, cv2.CC_STAT_TOP]
         w = stats[i, cv2.CC_STAT_WIDTH]
         h = stats[i, cv2.CC_STAT_HEIGHT]
         area = stats[i, cv2.CC_STAT_AREA]
-        print("[INFO] {}: area = {}".format(text, area))
         # construct a mask for the current connected component by
-        # finding a pixels in the labels array that have the current
+        # finding pixels in the labels array that have the current
         # connected component ID
         componentMask = (labels_im == i).astype("uint8") * 255
         # compare the area of a single trimer to the area of the

@@ -8,9 +8,9 @@ class Trimer():
     Base trimer class - various types of quenched trimers
     will be derived from this. Very few common parameters tbh.
     '''
-    def __init__(self, decay_time, neighbours):
+    def __init__(self, x, y, r, decay_time):
+        self.x, self.y, self.r = x, y, r
         self.decay_time = decay_time
-        self.neighbours = neighbours
 
     def get_decay_time(self):
         ''' Return decay time of this trimer '''
@@ -19,6 +19,14 @@ class Trimer():
     def get_neighbours(self):
         ''' Return list of neighbours of this trimer '''
         return self.neighbours
+
+    def add_neighbour(self, trimer):
+        self.neighbours.append(trimer)
+
+class State:
+    def __init__(self, type, ):
+        self.type = type
+
 
 class QuenchedTrimer(Trimer):
     '''
@@ -133,3 +141,82 @@ class Aggregate:
                     c1.draw_neighbour(c2.cx, c2.cy, col)
         cv2.imwrite(filename, col)
         self.shapefill.colour_img = col
+
+
+def generate_lattice(lattice_type, num_iter, r):
+    '''
+    test function to generate 1d, square, hex and hopefully honeycomb lattices.
+    draws packed circles to represent trimers on the lattice.
+    gonna use this as a basis for creating theoretical aggregates of trimers
+    '''
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+    from shapefill import Circle
+    if lattice_type == "line":
+        basis = [[0,0]]
+        symmetry = 2
+    elif lattice_type == "square":
+        basis = [[0,0]]
+        symmetry = 4
+    elif lattice_type == "hex":
+        basis = [[0,0]]
+        symmetry = 6
+    elif lattice_type == "honeycomb":
+        basis = [
+                np.array(r * [0,0]),
+                np.array(r * [0, 1])
+                ]
+        # doesn't work yet
+
+    nn_vectors = []
+    for i in range(symmetry):
+        phi = i * 2 * np.pi / symmetry
+        ri = np.array([
+            [np.cos(phi), np.sin(phi)],
+            [-np.sin(phi), np.cos(phi)]]) @ np.array([2.0001 * r, 0])
+        nn_vectors.append(ri)
+
+    sites = []
+    for b in basis:
+        sites.append(Circle(b[0], b[1], r))
+
+    fig, ax = plt.subplots()
+    for site in sites:
+        ax.add_patch(mpatches.Circle((site.cx, site.cy), site.r, 
+            ec='C0', fc='C0', lw=0.25 * r))
+
+    i = 0
+    while i < num_iter:
+        new_sites = []
+        colour = "C{:1d}".format(i + 1)
+        for site in sites:
+            for n in nn_vectors:
+                for b in basis:
+                    r0 = np.array([site.cx, site.cy])
+                    ri = np.array(r0) + np.array(b) + np.array(n)
+                    t = Circle(ri[0], ri[1], r)
+                    '''
+                    nested list comp to check overlap with the existing 
+                    sites from previous iterations and also the ones we're 
+                    currently adding
+                    '''
+                    if not any(t.overlap_with(t2.cx, t2.cy, r) for t2 in [a for b in [sites, new_sites] for a in b]):
+                        new_sites.append(t)
+        for site in new_sites:
+            ax.add_patch(mpatches.Circle((site.cx, site.cy),
+                site.r, ec=colour, fc=colour))
+            sites.append(site)
+        i += 1
+
+    print("Number of sites placed = {}".format(len(sites)))
+    xmax = np.max(np.array([s.cx for s in sites]))
+    ax.set_xlim([-xmax - (2. * r), xmax + (2. * r)])
+    ax.set_ylim([-xmax - (2. * r), xmax + (2. * r)])
+    fig.savefig("{}_lattice_agg.pdf".format(lattice_type))
+
+
+if __name__ == "__main__":
+    lattice_type = "hex"
+    num_iter = 5
+    r = 5.
+    generate_lattice(lattice_type, num_iter, r)

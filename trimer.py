@@ -34,6 +34,20 @@ class Trimer():
         d = np.hypot(x-self.x, y-self.y)
         return d < nn_cutoff
 
+    def draw_neighbour(self, cx, cy, img):
+        """ draw a line between two neighbours """
+        cv2.line(img, (self.cy, self.cx), (cy, cx), (232, 139, 39))
+
+    def draw_circle(self, img, r):
+        """Write the circle's SVG to the output stream, fo."""
+        # next line is for when i figure out how to use cv2 everywhere lol
+        cv2.circle(img, (self.cy, self.cx), r, (26, 0, 153), -1, cv2.LINE_AA)
+
+    def move(self, cx, cy):
+        """ move to (cx, cy). assumes we've checked for collisions! """
+        self.cx = cx
+        self.cy = cy
+
 class State:
     def __init__(self, type, ):
         self.type = type
@@ -79,7 +93,10 @@ class Aggregate:
         self.w = w
         self.h = h
         self.area = area
-        self.shapefill = ShapeFill(img, n=n, r=r, max_pulls=max_pulls, colours=['#99001A'])
+        if img is not None:
+            self.shapefill = ShapeFill(img, n=n, r=r, max_pulls=max_pulls, colours=['#99001A'])
+        # else:
+            # self.trimers = generate_lattice()
         self.fd = self.fractal_dimension()
 
     def fractal_dimension(self):
@@ -237,6 +254,7 @@ def generate_lattice(lattice_type, num_iter, r):
     ax.set_ylim([-xmax - (2. * r), xmax + (2. * r)])
     fig.savefig("{}_lattice_agg.pdf".format(lattice_type))
 
+    return trimers
 
 if __name__ == "__main__":
     lattice_type = "hex"

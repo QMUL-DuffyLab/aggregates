@@ -4,7 +4,7 @@ import cv2
 import sys
 import argparse
 import numpy as np
-from trimer import Aggregate
+from trimer import Aggregate, real_aggregate
 
 # code adapted from https://www.pyimagesearch.com/2021/02/22/opencv-connected-component-labeling-and-analysis/
 
@@ -65,12 +65,7 @@ for i in range(0, num_labels):
         # grain to get a rough estimate of how many circles to try and place
         n = int(area / (np.pi * (args.trimer_radius / args.pixel_size)**2))
         if (n > 0):
-            ag = Aggregate(componentMask, x, y, w, h, area, n, r, nn_cutoff, args.max_pulls)
-            print("Fractal dimension = {}".format(ag.fd))
-            ag.shapefill.make_image('components/{:03d}.jpg'.format(i))
-            ag.shapefill.pack()
-            ag.shapefill.make_image('components/{:03d}_pulled.jpg'.format(i))
-            ag.A = ag.adj(nn_cutoff)
-            ag.make_neighbours('components/{:03d}_neighbours.jpg'.format(i))
+            # ag = Aggregate(componentMask, x, y, w, h, area, n, r, nn_cutoff, args.max_pulls)
+            ag = real_aggregate(r, nn_cutoff, componentMask, n, args.max_pulls, i)
             aggregates.append(ag)
 

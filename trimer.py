@@ -8,9 +8,10 @@ class Trimer():
     Base trimer class - various types of quenched trimers
     will be derived from this. Very few common parameters tbh.
     '''
-    def __init__(self, x, y, r, decay_time):
+    def __init__(self, x, y, r, decay_time=4.):
         self.x, self.y, self.r = x, y, r
         self.decay_time = decay_time
+        self.neighbours = []
 
     def get_decay_time(self):
         ''' Return decay time of this trimer '''
@@ -24,24 +25,22 @@ class Trimer():
         self.neighbours.append(trimer)
 
     def overlap_with(self, x, y, r):
-        """Does the circle overlap with another of radius r at (cx, cy)?"""
-
+        """Does this trimer overlap with another at (x, y)? """
         d = np.hypot(x-self.x, y-self.y)
         return d < r + self.r
 
     def is_nn(self, x, y, nn_cutoff):
-        """Do we consider this circle as a neighbour to the circle (cx, cy)?"""
+        """Do we consider this trimer as a neighbour to one at (x, y)?"""
         d = np.hypot(x-self.x, y-self.y)
         return d < nn_cutoff
 
-    def draw_neighbour(self, cx, cy, img):
-        """ draw a line between two neighbours """
-        cv2.line(img, (self.cy, self.cx), (cy, cx), (232, 139, 39))
-
     def draw_circle(self, img, r):
-        """Write the circle's SVG to the output stream, fo."""
-        # next line is for when i figure out how to use cv2 everywhere lol
-        cv2.circle(img, (self.cy, self.cx), r, (26, 0, 153), -1, cv2.LINE_AA)
+        """ draw this trimer """
+        cv2.circle(img, (self.y, self.x), r, (26, 0, 153), -1, cv2.LINE_AA)
+
+    def draw_neighbour(self, x, y, img):
+        """ draw a line between two neighbours """
+        cv2.line(img, (self.y, self.x), (y, x), (232, 139, 39))
 
     def move(self, cx, cy):
         """ move to (cx, cy). assumes we've checked for collisions! """
@@ -49,36 +48,139 @@ class Trimer():
         self.cy = cy
 
 class State:
-    def __init__(self, type, ):
+    def __init__(self, type, rates, lifetime):
         self.type = type
+        self.rates = rates
+        self.lifetime = lifetime
 
+def real_aggregate(r, nn_cutoff, img, n, max_pulls, component):
+    sf = ShapeFill(img, n=n, r=r, max_pulls=max_pulls, colours=['#99001A'])
+    sf.make_image('components/{:03d}.jpg'.format(component))
+    sf.pack()
+    sf.make_image('components/{:03d}_pulled.jpg'.format(component))
+    trimers = []
+    for c in sf.circles:
+        trimers.append(Trimer(c.cx, c.cy, r))
 
-class QuenchedTrimer(Trimer):
     '''
-    Not sure yet whether this will be the base for different
-    kinds of quenched trimer or whether I'll just make one Trimer
-    subclass for each type.
+    this code is duplicated below: check whether the actual
+    trimer objects will be modified if called from a function.
+    if so, we can just make it a function and call that
     '''
-    def __init__(self, decay_time, neighbours, num_levels):
-        self.num_levels = num_levels
-        super().__init__(decay_time, neighbours)
+    A = np.zeros((len(trimers), len(trimers)))
+    for i, t1 in enumerate(trimers):
+        for j, t2 in enumerate(trimers):
+            if i == j:
+                continue
+            else:
+                if (t1.is_nn(t2.x, t2.y, nn_cutoff)):
+                    A[i][j] = 1
+                    t1.add_neighbour(t2)
 
-    def get_num_levels(self):
-        '''
-        Different types of quenching are represented here by
-        different levels in the trimer - return the number of
-        levels for this one
-        '''
-        return self.num_levels
+    for i in range(len(trimers)):
+        if A[i][i] != 0:
+            print("adjacency matrix broken")
+        
+    return Aggregate(trimers, A, img)
 
 
-    def _construct_adjacency_matrix(self):
-        '''
-        Depending on what kind of quencher we have, we need to
-        add extra rows to the adjacency matrix representing the
-        trap(s) - do this here. idk what this will involve yet
-        '''
-        return
+def theoretical_aggregate(r, nn_cutoff, lattice_type, n_iter):
+        from shapefill import Circle
+        if lattice_type == "line":
+            basis = [[0,0]]
+            a = 2.00000001 * r
+            symmetry = 2
+        elif lattice_type == "square":
+            basis = [[0,0]]
+            a = 2.00000001 * r
+            symmetry = 4
+        elif lattice_type == "hex":
+            basis = [[0,0]]
+            a = 2.00000001 * r
+            symmetry = 6
+        elif lattice_type == "honeycomb":
+            basis = [
+                    2. * r * np.array([0, 0]),
+                    2. * r * np.array([0, -1]),
+                    ]
+            a = 2.00000001 * np.sqrt(3.) * r
+            symmetry = 6
+
+        print("{} lattice generation.".format(lattice_type.capitalize()))
+
+        nn_vectors = []
+        for i in range(symmetry):
+            phi = i * 2 * np.pi / symmetry
+            ri = np.array([
+                [np.cos(phi), np.sin(phi)],
+                [-np.sin(phi), np.cos(phi)]]) @ np.array(a * np.array([1, 0]))
+            nn_vectors.append(ri)
+
+        sites = []
+        sites.append(Circle(basis[0][0], basis[0][1], r - 0.000001))
+
+        i = 0
+        while i < n_iter:
+            new_sites = []
+            for site in sites:
+                for n in nn_vectors:
+                    r0 = np.array([site.cx, site.cy])
+                    ri = np.array(r0) + np.array(n)
+                    c = Circle(ri[0], ri[1], r - 0.0000001)
+                    '''
+                    nested list comp to check overlap with the existing 
+                    sites from previous iterations and also the ones we're 
+                    currently adding
+                    '''
+                    if not any(c.overlap_with(c2.cx, c2.cy, r) 
+                            for c2 in [a for b in [sites, new_sites] 
+                            for a in b]):
+                        new_sites.append(c)
+            sites.extend(new_sites)
+            i += 1
+
+        trimers = []
+        xmax = 0.
+        for site in sites:
+            for ind, b in enumerate(basis):
+                if (np.abs(site.cx + b[0]) > xmax):
+                    xmax = np.abs(site.cx + b[0])
+                t = Trimer(site.cx + b[0], site.cy + b[1], r - 0.00001)
+                if not any(t.overlap_with(t2.x, t2.y, r) for t2 in trimers):
+                    trimers.append(t)
+                else:
+                    print("Trimer collision!!!")
+
+        # do this after appending all the trimers to
+        # ensure that A_{ij} and nn pairs are symmetric
+        A = np.zeros((len(trimers), len(trimers)))
+        img = np.zeros((2 * int(xmax + 4. * r),
+            2 * int(xmax + 4. * r), 3), np.uint8)
+        for i, t1 in enumerate(trimers):
+            cv2.circle(img, (int(t1.y + xmax + 2. * r),
+                int(t1.x + xmax + 2. * r)), int(t1.r) + 1, (255, 255, 255), -1)
+            for j, t2 in enumerate(trimers):
+                if i == j:
+                    continue
+                else:
+                    if (t1.is_nn(t2.x, t2.y, nn_cutoff)):
+                        A[i][j] = 1
+                        t1.add_neighbour(t2)
+
+        colour_img = img.copy()
+        for i, t in enumerate(trimers):
+            print("Trimer no. {}: x = {:8.3f}, y = {:8.3f}".format(i, t.x, t.y))
+            for j, t2 in enumerate(t.get_neighbours()):
+                print("Neighbour {}: x = {:8.3f}, y = {:8.3f}".format(j, t2.x, t2.y))
+                cv2.line(colour_img, (int(t.y + xmax + 2. * r),
+                int(t.x + xmax + 2. * r)), (int(t2.y + xmax + 2. * r),
+                int(t2.x + xmax + 2. * r)), (232, 139, 39))
+
+        cv2.imwrite("{}_lattice_cv2_neighbours.jpg".format(lattice_type),
+                colour_img)
+        print("Number of trimers placed = {}".format(len(trimers)))
+        img_binary = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        return Aggregate(trimers, A, img_binary)
 
 class Aggregate:
     '''
@@ -86,18 +188,12 @@ class Aggregate:
     (monochrome with only this aggregate) then pass to shapefill,
     add the circles and adjacency info to the aggregate as well.
     '''
-    def __init__(self, img, x, y, w, h, area, n, r, nn_cutoff, max_pulls):
+    def __init__(self, trimers, A, img):
+        self.trimers = trimers
+        self.A = A
         self.img = img
-        self.x = x
-        self.y = y
-        self.w = w
-        self.h = h
-        self.area = area
-        if img is not None:
-            self.shapefill = ShapeFill(img, n=n, r=r, max_pulls=max_pulls, colours=['#99001A'])
-        # else:
-            # self.trimers = generate_lattice()
         self.fd = self.fractal_dimension()
+        print("Fractal dimension = {:6.4f}".format(self.fd))
 
     def fractal_dimension(self):
         '''
@@ -158,106 +254,18 @@ class Aggregate:
         '''
         draw all the neighbours onto the image so we can check!
         '''
-        if len(self.shapefill.circles) < 2: # no neighbours
+        if len(self.trimers) < 2: # no neighbours
             return None
 
-        col = self.shapefill.colour_img.copy()
-        for i, c1 in enumerate(self.shapefill.circles):
-            c1.draw_circle(col, int(c1.r))
-            for j, c2 in enumerate(self.shapefill.circles):
-                if self.A[i][j]:
-                    c1.draw_neighbour(c2.cx, c2.cy, col)
+        col = cv2.cvtColor(self.img, cv2.COLOR_GRAY2BGR)
+        for t1 in self.trimers:
+            t1.draw_circle(col, int(t1.r))
+            for t2 in t1.get_neighbours():
+                t1.draw_neighbour(t2.x, t2.y, col)
         cv2.imwrite(filename, col)
-        self.shapefill.colour_img = col
-
-def generate_lattice(lattice_type, num_iter, r):
-    '''
-    test function to generate 1d, square, hex and hopefully honeycomb lattices.
-    draws packed circles to represent trimers on the lattice.
-    gonna use this as a basis for creating theoretical aggregates of trimers
-    '''
-    import matplotlib.pyplot as plt
-    import matplotlib.patches as mpatches
-    from shapefill import Circle
-    if lattice_type == "line":
-        basis = [[0,0]]
-        a = 2.00000001 * r
-        symmetry = 2
-    elif lattice_type == "square":
-        basis = [[0,0]]
-        a = 2.00000001 * r
-        symmetry = 4
-    elif lattice_type == "hex":
-        basis = [[0,0]]
-        a = 2.00000001 * r
-        symmetry = 6
-    elif lattice_type == "honeycomb":
-        basis = [
-                2. * r * np.array([0, 0]),
-                2. * r * np.array([0, -1]),
-                ]
-        a = 2.00000001 * np.sqrt(3.) * r
-        symmetry = 6
-
-    nn_vectors = []
-    for i in range(symmetry):
-        phi = i * 2 * np.pi / symmetry
-        ri = np.array([
-            [np.cos(phi), np.sin(phi)],
-            [-np.sin(phi), np.cos(phi)]]) @ np.array(a * np.array([1, 0]))
-        nn_vectors.append(ri)
-
-    print(nn_vectors)
-    sites = []
-    sites.append(Circle(basis[0][0], basis[0][1], r - 0.000001))
-
-    fig, ax = plt.subplots()
-    for b in basis:
-        ax.add_patch(mpatches.Circle((b[0], b[1]), r - 0.000001, 
-            ec='C0', fc='C0', lw=0.25 * r))
-
-    i = 0
-    while i < num_iter:
-        new_sites = []
-        colour = "C{:1d}".format(i + 1)
-        for site in sites:
-            for n in nn_vectors:
-                r0 = np.array([site.cx, site.cy])
-                ri = np.array(r0) + np.array(n)
-                t = Circle(ri[0], ri[1], r - 0.0000001)
-                '''
-                nested list comp to check overlap with the existing 
-                sites from previous iterations and also the ones we're 
-                currently adding
-                '''
-                if not any(t.overlap_with(t2.cx, t2.cy, r) for t2 in [a for b in [sites, new_sites] for a in b]):
-                    new_sites.append(t)
-        for site in new_sites:
-            sites.append(site)
-        i += 1
-
-    trimers = []
-    for site in sites:
-        for ind, b in enumerate(basis):
-            t = Trimer(site.cx + b[0], site.cy + b[1], r - 0.00001, 4.)
-            if not any(t.overlap_with(t2.x, t2.y, r) for t2 in trimers):
-                trimers.append(t)
-                ax.add_patch(mpatches.Circle((site.cx + b[0], site.cy + b[1]),
-                    site.r - 0.00001, ec='C{:1d}'.format(ind), fc='w'))
-            else:
-                print("Trimer collision!!!")
-
-    print("Number of sites placed = {}".format(len(sites)))
-    print("Number of trimers = {}".format(len(trimers)))
-    xmax = np.max(np.array(np.abs([s.cx for s in sites])))
-    ax.set_xlim([-xmax - (2. * r), xmax + (2. * r)])
-    ax.set_ylim([-xmax - (2. * r), xmax + (2. * r)])
-    fig.savefig("{}_lattice_agg.pdf".format(lattice_type))
-
-    return trimers
 
 if __name__ == "__main__":
     lattice_type = "hex"
-    num_iter = 5
+    n_iter = 7
     r = 5.
-    generate_lattice(lattice_type, num_iter, r)
+    agg = theoretical_aggregate(r, 2.5*r, lattice_type, n_iter)

@@ -13,6 +13,11 @@ class Circle:
         self.cx, self.cy, self.r = cx, cy, r
         self.icolour = icolour
 
+    def move(self, cx, cy):
+        """ move to (cx, cy). assumes we've checked for collisions! """
+        self.cx = cx
+        self.cy = cy
+
     def overlap_with(self, cx, cy, r):
         """Does the circle overlap with another of radius r at (cx, cy)?"""
 
@@ -24,20 +29,13 @@ class Circle:
         d = np.hypot(cx-self.cx, cy-self.cy)
         return d < nn_cutoff
 
+    def draw_circle(self, img, r):
+        """Draw a circle on the image using cv2"""
+        cv2.circle(img, (self.cy, self.cx), r, (26, 0, 153), -1, cv2.LINE_AA)
+
     def draw_neighbour(self, cx, cy, img):
         """ draw a line between two neighbours """
         cv2.line(img, (self.cy, self.cx), (cy, cx), (232, 139, 39))
-
-    def draw_circle(self, img, r):
-        """Write the circle's SVG to the output stream, fo."""
-        # next line is for when i figure out how to use cv2 everywhere lol
-        cv2.circle(img, (self.cy, self.cx), r, (26, 0, 153), -1, cv2.LINE_AA)
-
-    def move(self, cx, cy):
-        """ move to (cx, cy). assumes we've checked for collisions! """
-        self.cx = cx
-        self.cy = cy
-
 
 class ShapeFill():
     """A class for filling a shape with circles."""
@@ -61,7 +59,7 @@ class ShapeFill():
         self.colours = colours or ['#99001A', '#278BE8','#F2D33C','#832591','#F28FEA']
 
     def _circle_fits(self, icx, icy, r):
-        """If I fits, I sits."""
+        """pretty self explanatory"""
 
         if icx-r < 0 or icy-r < 0:
             return False

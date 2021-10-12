@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import numpy as np
 from shapefill import ShapeFill
 import cv2
@@ -21,9 +22,6 @@ class Trimer():
         ''' Return list of neighbours of this trimer '''
         return self.neighbours
 
-    def add_neighbour(self, trimer):
-        self.neighbours.append(trimer)
-
     def overlap_with(self, x, y, r):
         """Does this trimer overlap with another at (x, y)? """
         d = np.hypot(x-self.x, y-self.y)
@@ -42,10 +40,16 @@ class Trimer():
         """ draw a line between two neighbours """
         cv2.line(img, (self.y, self.x), (y, x), (232, 139, 39))
 
-    def move(self, cx, cy):
+    def _move(self, x, y):
         """ move to (cx, cy). assumes we've checked for collisions! """
-        self.cx = cx
-        self.cy = cy
+        self.x = x
+        self.y = y
+
+    def _add_neighbour(self, trimer):
+        self.neighbours.append(trimer)
+
+    def _add_index(self, i):
+        self.index = i
 
 class State:
     def __init__(self, type, rates, lifetime):
@@ -53,19 +57,18 @@ class State:
         self.rates = rates
         self.lifetime = lifetime
 
-def real_aggregate(r, nn_cutoff, img, n, max_pulls, component):
-    sf = ShapeFill(img, n=n, r=r, max_pulls=max_pulls, colours=['#99001A'])
-    sf.make_image('components/{:03d}.jpg'.format(component))
-    sf.pack()
-    sf.make_image('components/{:03d}_pulled.jpg'.format(component))
-    trimers = []
-    for c in sf.circles:
-        trimers.append(Trimer(c.cx, c.cy, r))
+def check_neighbours(trimer):
+    if not trimer.get_neighbours():
+        print("no neighbours!")
+    for i, t in enumerate(trimer.get_neighbours()):
+        print("Neighbour {:4d}: x = {:6.4f}, y = {:6.4f}".format(i, t.x, t.y))
 
+def nn_adj(trimers, nn_cutoff):
     '''
-    this code is duplicated below: check whether the actual
-    trimer objects will be modified if called from a function.
-    if so, we can just make it a function and call that
+    for a given near-neighbour cutoff distance, this function adds
+    near-neighbour data to each Trimer object in the list of trimers,
+    and generates a matching adjacency matrix. i feel horrible modifying
+    the objects in the function and also returning an array, somehow?
     '''
     A = np.zeros((len(trimers), len(trimers)))
     for i, t1 in enumerate(trimers):
@@ -75,14 +78,23 @@ def real_aggregate(r, nn_cutoff, img, n, max_pulls, component):
             else:
                 if (t1.is_nn(t2.x, t2.y, nn_cutoff)):
                     A[i][j] = 1
-                    t1.add_neighbour(t2)
+                    t1._add_neighbour(t2)
 
     for i in range(len(trimers)):
         if A[i][i] != 0:
-            print("adjacency matrix broken")
-        
-    return Aggregate(trimers, A, img)
+            print("adjacency matrix broken in nn_adj")
+    return A
 
+def real_aggregate(r, nn_cutoff, img, n, max_pulls, component):
+    sf = ShapeFill(img, n=n, r=r, max_pulls=max_pulls, colours=['#99001A'])
+    sf.make_image('components/{:03d}.jpg'.format(component))
+    sf.pack()
+    sf.make_image('components/{:03d}_pulled.jpg'.format(component))
+    trimers = []
+    for c in sf.circles:
+        trimers.append(Trimer(c.cx, c.cy, r))
+    A = nn_adj(trimers, nn_cutoff) 
+    return Aggregate(trimers, A, img)
 
 def theoretical_aggregate(r, nn_cutoff, lattice_type, n_iter):
         from shapefill import Circle
@@ -153,27 +165,22 @@ def theoretical_aggregate(r, nn_cutoff, lattice_type, n_iter):
 
         # do this after appending all the trimers to
         # ensure that A_{ij} and nn pairs are symmetric
-        A = np.zeros((len(trimers), len(trimers)))
+        A = nn_adj(trimers, nn_cutoff)
         img = np.zeros((2 * int(xmax + 4. * r),
             2 * int(xmax + 4. * r), 3), np.uint8)
+
+        # we draw lines below to check that the nn_cutoff is sensible,
+        # but don't want the lines on img which will be used
+        # to calculate fractal dimension, so make a copy first
+        colour_img = img.copy()
         for i, t1 in enumerate(trimers):
             cv2.circle(img, (int(t1.y + xmax + 2. * r),
-                int(t1.x + xmax + 2. * r)), int(t1.r) + 1, (255, 255, 255), -1)
-            for j, t2 in enumerate(trimers):
-                if i == j:
-                    continue
-                else:
-                    if (t1.is_nn(t2.x, t2.y, nn_cutoff)):
-                        A[i][j] = 1
-                        t1.add_neighbour(t2)
-
-        colour_img = img.copy()
-        for i, t in enumerate(trimers):
-            print("Trimer no. {}: x = {:8.3f}, y = {:8.3f}".format(i, t.x, t.y))
-            for j, t2 in enumerate(t.get_neighbours()):
-                print("Neighbour {}: x = {:8.3f}, y = {:8.3f}".format(j, t2.x, t2.y))
-                cv2.line(colour_img, (int(t.y + xmax + 2. * r),
-                int(t.x + xmax + 2. * r)), (int(t2.y + xmax + 2. * r),
+                int(t1.x + xmax + 2. * r)), int(t1.r), (255, 255, 255), -1)
+            cv2.circle(colour_img, (int(t1.y + xmax + 2. * r),
+                int(t1.x + xmax + 2. * r)), int(t1.r), (255, 255, 255), -1)
+            for j, t2 in enumerate(t1.get_neighbours()):
+                cv2.line(colour_img, (int(t1.y + xmax + 2. * r),
+                int(t1.x + xmax + 2. * r)), (int(t2.y + xmax + 2. * r),
                 int(t2.x + xmax + 2. * r)), (232, 139, 39))
 
         cv2.imwrite("{}_lattice_cv2_neighbours.jpg".format(lattice_type),
@@ -184,9 +191,9 @@ def theoretical_aggregate(r, nn_cutoff, lattice_type, n_iter):
 
 class Aggregate:
     '''
-    connected components bits: stats, image
-    (monochrome with only this aggregate) then pass to shapefill,
-    add the circles and adjacency info to the aggregate as well.
+    basic aggregate class - just a list of trimers with near neighbour
+    data already calculated, the corresponding adjacency matrix, and
+    a plain (b&w) image with the aggregate's shape on it.
     '''
     def __init__(self, trimers, A, img):
         self.trimers = trimers
@@ -235,24 +242,11 @@ class Aggregate:
         coeffs = np.polyfit(np.log(sizes), np.log(counts), 1)
         return -coeffs[0]
 
-    def adj(self, nn_cutoff):
-        '''
-        construct an adjacency matrix
-        '''
-        adj = np.zeros((len(self.shapefill.circles), len(self.shapefill.circles)))
-        for i, c in enumerate(self.shapefill.circles):
-            neighbours = np.array([c.is_nn(c2.cx, c2.cy, nn_cutoff) for c2 in self.shapefill.circles])
-            adj[i] = neighbours.astype(int)
-
-        # the above will make each circle its own neighbour
-        for i in range(len(self.shapefill.circles)):
-            adj[i][i] = 0
-
-        return adj
-
     def make_neighbours(self, filename):
         '''
         draw all the neighbours onto the image so we can check!
+        only works for real_aggregate atm because the theoretical one
+        returns floats for t.x and t.y
         '''
         if len(self.trimers) < 2: # no neighbours
             return None

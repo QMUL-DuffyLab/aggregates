@@ -65,7 +65,7 @@ for i in range(0, num_labels):
         # grain to get a rough estimate of how many circles to try and place
         n = int(area / (np.pi * (args.trimer_radius / args.pixel_size)**2))
         if (n > 0):
-            # ag = Aggregate(componentMask, x, y, w, h, area, n, r, nn_cutoff, args.max_pulls)
             ag = real_aggregate(r, nn_cutoff, componentMask, n, args.max_pulls, i)
+            ag.make_neighbours("components/{:03d}_neighbours.jpg".format(i))
             aggregates.append(ag)
 

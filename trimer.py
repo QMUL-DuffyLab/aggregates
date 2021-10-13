@@ -183,7 +183,7 @@ def theoretical_aggregate(r, nn_cutoff, lattice_type, n_iter):
                 int(t1.x + xmax + 2. * r)), (int(t2.y + xmax + 2. * r),
                 int(t2.x + xmax + 2. * r)), (232, 139, 39))
 
-        cv2.imwrite("{}_lattice_cv2_neighbours.jpg".format(lattice_type),
+        cv2.imwrite("components/{}_lattice_cv2_neighbours.jpg".format(lattice_type),
                 colour_img)
         print("Number of trimers placed = {}".format(len(trimers)))
         img_binary = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -200,6 +200,8 @@ class Aggregate:
         self.A = A
         self.img = img
         self.fd = self.fractal_dimension()
+        for i in range(len(trimers)):
+            trimers[i].index = i
         print("Fractal dimension = {:6.4f}".format(self.fd))
 
     def fractal_dimension(self):

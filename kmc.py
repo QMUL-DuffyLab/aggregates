@@ -13,6 +13,7 @@ class Rates():
     '''
     def __init__(self, hopping_time, Gamma_pool, Gamma_pq, Gamma_q, k_po_pq, k_pq_po, k_pq_q, k_q_pq, k_annihilation):
         np.seterr(divide='ignore')
+        self.hopping_time = hopping_time
         self.hop = 1.
         self.g_pool  = (1. / Gamma_pool) * hopping_time
         self.g_pq    = (1. / Gamma_pq) * hopping_time
@@ -34,17 +35,19 @@ class Iteration():
         # +2 for the pre-quencher and quencher
         self.n_sites = len(self.aggregate.trimers) + 2
         self.n_i = np.zeros(self.n_sites, dtype=np.uint8)
-        self.previous_pool = np.zeros(self.n_e, dtype=np.int8) - 1
+        # self.previous_pool = np.zeros(self.n_e, dtype=np.int8) - 1
+        self.previous_pool = []
         self.transitions = [[]] * self.n_sites
         self.transition_calc()
         self.t = 0. # probably need to write a proper init function
         self.kmc_setup()
-        print("Init: excitations at trimers: ", self.n_i.nonzero()[0])
         for i in range(self.n_st):
-            self.kmc_step()
-            print("after step {}, time = {:8.3e}, excitations at trimers: ".format(i, self.t), self.n_i.nonzero()[0])
-            if i // 10 == 0:
-                self.draw("components/frame_{:03d}.jpg".format(i))
+            print("Step {}, time = {:8.3e}".format(i, self.t))
+            self.draw("frames/{:03d}.jpg".format(i))
+            status = self.kmc_step()
+            if status < 0:
+                print("Nonzero status returned by kmc_step() - breaking")
+                break
 
     def transition_calc(self):
         print(self.n_sites)
@@ -84,7 +87,7 @@ class Iteration():
         '''
         if np.sum(self.n_i) == 0:
             print("no excitations left!")
-            return
+            return -1
         currently_occupied = []
         # the [0] is because nonzero() returns a tuple
         # and the list of nonzero indices is the first bit
@@ -96,7 +99,6 @@ class Iteration():
         i = self.rng.integers(low=0, high=len(currently_occupied))
         rand1 = self.rng.random()
         rand2 = self.rng.random()
-        print("{}: occupations at sites {}, occupation numbers {}".format(i, self.n_i.nonzero()[0], self.n_i[np.nonzero(self.n_i)]))
         ind = currently_occupied[i]
         if ind < self.n_sites - 2:
             # pool
@@ -125,7 +127,8 @@ class Iteration():
                 print("po->pq from trimer {}".format(ind))
                 self.n_i[ind] -= 1
                 self.n_i[-2]  += 1
-                self.previous_pool[i] = ind
+                self.previous_pool.append(ind)
+                print("previous pool = {}".format(self.previous_pool))
             else:
                 # hop to neighbour
                 print(q, ind, [self.aggregate.trimers[ind].get_neighbours()[j].index for j in range(len(self.aggregate.trimers[ind].get_neighbours()))])
@@ -135,17 +138,23 @@ class Iteration():
                 self.n_i[self.aggregate.trimers[ind].get_neighbours()[q].index] += 1
         elif ind == self.n_sites - 2:
             '''
-            NB: in principle it's possible for multiple excitations
-            to land on the pre-quencher/quencher at the same time;
-            I don't currently deal with annihilation on those.
+            NB: no annihilation here - in principle every trimer is
+            connected to a pre-quencher and through that to a quencher;
+            this is just a convenient way of bookkeeping
             '''
             # pre-quencher
             (q, k_tot) = select_process(self.transitions[ind], rand1)
             if (q == 0):
                 # hop back to pool
-                print("pq->po, previous_pool = {}".format(self.previous_pool))
+                # excitations on the pre-quencher are indistinguishable:
+                # pick one at random from previous_pool and put it there
+                # with previous_pool.pop() it'd be first in first out
+                choice = self.rng.integers(low=0, high=len(self.previous_pool))
                 self.n_i[ind] -= 1
-                self.n_i[self.previous_pool[i]] += 1
+                self.n_i[self.previous_pool[choice]] += 1
+                print("pq->po: ind {}, choice {}, previous pool = {}".format(ind, choice, self.previous_pool))
+                del self.previous_pool[choice]
+                print("pq->po after delete: previous pool = {}".format(self.previous_pool))
             elif (q == 1):
                 # hop to quencher
                 print("pq->q")
@@ -155,7 +164,9 @@ class Iteration():
                 # decay
                 print("pq decay")
                 self.n_i[ind] -= 1
-                self.previous_pool[i] = -1
+                choice = self.rng.integers(low=0, high=len(self.previous_pool))
+                del self.previous_pool[choice]
+                print("previous pool = {}".format(self.previous_pool))
         elif ind == self.n_sites - 1:
             # quencher
             (q, k_tot) = select_process(self.transitions[ind], rand1)
@@ -168,16 +179,22 @@ class Iteration():
                 # decay
                 print("q decay")
                 self.n_i[ind] -= 1
-                self.previous_pool[i] = -1
-        self.t -= np.log(rand2 / k_tot)
+                choice = self.rng.integers(low=0, high=len(self.previous_pool))
+                del self.previous_pool[choice]
+                print("previous pool = {}".format(self.previous_pool))
+        # i think this is correct???? need to figure out
+        self.t -= np.log(rand2 / (k_tot)) * self.rates.hopping_time
+        return 0
 
     def draw(self, filename):
         '''
         draw the system after one step.
-        doesn't do pre quencher or quencher yet
+        the tuples here with the positions are horrible, i know,
+        but they work
         '''
         xmax = np.max([np.abs(t.x) for t in self.aggregate.trimers])
         scale = 4
+        font = cv2.FONT_HERSHEY_DUPLEX
         img = np.zeros((2 * scale * int(xmax + 4. * r) + 200,
             2 * scale * int(xmax + 4. * r) + 200, 3), np.uint8)
         for i, t in enumerate(self.aggregate.trimers):
@@ -190,31 +207,37 @@ class Iteration():
                     int(scale * (t.x + xmax + 2. * r))), 
                     int(scale * t.r), (26, 0, 153), -1)
                 cv2.putText(img, "{:1d}".format(self.n_i[i]),
-                        (scale * int(t.y + xmax + 2 * r - 1),
-                    scale * int(t.x + xmax + 2 * r + 1)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 3)
+                        (scale * int(t.y + xmax + 1.75 * r),
+                    scale * int(t.x + xmax + 2.25 * r)),
+                        font, 0.75, (255, 255, 255), 3)
         # pre-quencher
         pq_colour = (0, 94, 20)
         cv2.rectangle(img, pt1=(2 * scale * int(xmax + 4 * r) + 50, 100), 
             pt2=(2 * scale * int(xmax + 4 * r) + 100, 150),
             color=pq_colour, thickness=-1)
         cv2.putText(img, "{:2d}".format(self.n_i[-2]),
-                (2 * scale * int(xmax + 4 * r) + 55, 130),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 3)
+                (2 * scale * int(xmax + 4 * r) + 50, 135),
+                font, 1, (255, 255, 255), 2)
         cv2.putText(img, "PQ",
                 (2 * scale * int(xmax + 4 * r) + 55, 90),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.75, pq_colour, 3)
+                font, 0.75, pq_colour, 3)
         # quencher
         q_colour = (60, 211, 242)
         cv2.rectangle(img, pt1=(2 * scale * int(xmax + 4 * r) + 50, 200), 
             pt2=(2 * scale * int(xmax + 4 * r) + 100, 250),
             color=q_colour, thickness=-1)
         cv2.putText(img, "{:2d}".format(self.n_i[-1]),
-                (2 * scale * int(xmax + 4 * r) + 55, 230),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 3)
+                (2 * scale * int(xmax + 4 * r) + 50, 235),
+                font, 1, (255, 255, 255), 2)
         cv2.putText(img, "Q",
                 (2 * scale * int(xmax + 4 * r) + 55, 190),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.75, q_colour, 3)
+                font, 0.75, q_colour, 3)
+        cv2.putText(img, "t = {:6.2f} ps".format(self.t),
+                (2 * scale * int(xmax + 4 * r) + 5, 300),
+                font, 0.75, (255, 255, 255), 2)
+        cv2.putText(img, "n = {:02d}".format(np.sum(self.n_i)),
+                (2 * scale * int(xmax + 4 * r) + 5, 350),
+                font, 0.75, (255, 255, 255), 2)
         cv2.imwrite(filename, img)
 
 def select_process(k_p, rand):
@@ -232,8 +255,8 @@ def select_process(k_p, rand):
 
 if __name__ == "__main__":
     r = 5.
-    lattice_type = "hex"
-    n_iter = 5
+    lattice_type = "honeycomb"
+    n_iter = 7
 
     rates = Rates(25., 4000., 4000., 14., 7., 1., 20., np.inf, 0.5)
     agg = theoretical_aggregate(r, 2.5*r, lattice_type, n_iter)

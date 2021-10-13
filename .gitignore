@@ -1,4 +1,5 @@
 *.bmp
 *.pdf
 components/*
+frames/*
 __pycache__/*

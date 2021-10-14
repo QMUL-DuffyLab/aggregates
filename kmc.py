@@ -9,20 +9,20 @@ class Rates():
     take a set of rates and normalise them to the hopping rate:
     e.g. a fast pre-quencher to quencher rate of 400fs^{-1}
     compared to a hopping rate of 20ps^{-1} gives a rate of 20/0.4 = 50.
-    Give all the rates in ps!!!
+    Give as equivalent times in ps!
     '''
-    def __init__(self, hopping_time, Gamma_pool, Gamma_pq, Gamma_q, k_po_pq, k_pq_po, k_pq_q, k_q_pq, k_annihilation):
-        np.seterr(divide='ignore')
+    def __init__(self, hopping_time, tau_pool, tau_pq, tau_q,
+            t_po_pq, t_pq_po, t_pq_q, t_q_pq, t_annihilation):
         self.hopping_time = hopping_time
         self.hop = 1.
-        self.g_pool  = (1. / Gamma_pool) * hopping_time
-        self.g_pq    = (1. / Gamma_pq) * hopping_time
-        self.g_q     = (1. / Gamma_q) * hopping_time
-        self.k_po_pq = (1. / k_po_pq) * hopping_time
-        self.k_pq_po = (1. / k_pq_po) * hopping_time
-        self.k_pq_q  = (1. / k_pq_q) * hopping_time
-        self.k_q_pq  = (1. / k_q_pq) * hopping_time
-        self.k_ann   = (1. / k_annihilation) * hopping_time
+        self.g_pool  = (1. / tau_pool) * hopping_time
+        self.g_pq    = (1. / tau_pq) * hopping_time
+        self.g_q     = (1. / tau_q) * hopping_time
+        self.k_po_pq = (1. / t_po_pq) * hopping_time
+        self.k_pq_po = (1. / t_pq_po) * hopping_time
+        self.k_pq_q  = (1. / t_pq_q) * hopping_time
+        self.k_q_pq  = (1. / t_q_pq) * hopping_time
+        self.k_ann   = (1. / t_annihilation) * hopping_time
 
 class Iteration():
     def __init__(self, aggregate, rates, seed, n_steps, n_excitations):
@@ -32,14 +32,17 @@ class Iteration():
         self.currently_occupied = []
         self.n_st = n_steps
         self.n_e = n_excitations
-        # +2 for the pre-quencher and quencher
+        # + 2 for the pre-quencher and quencher
         self.n_sites = len(self.aggregate.trimers) + 2
         self.n_i = np.zeros(self.n_sites, dtype=np.uint8)
-        # self.previous_pool = np.zeros(self.n_e, dtype=np.int8) - 1
         self.previous_pool = []
-        self.transitions = [[]] * self.n_sites
+        self.transitions = [[] for _ in range(self.n_sites)]
         self.transition_calc()
         self.t = 0. # probably need to write a proper init function
+        self.ti = [0.]
+        # four ways to lose population: annihilation, decay from a
+        # chl pool (trimer), decay from pre-quencher, decay from quencher
+        self.loss_times = [[] for _ in range(4)]
         self.kmc_setup()
         for i in range(self.n_st):
             print("Step {}, time = {:8.3e}".format(i, self.t))
@@ -89,6 +92,8 @@ class Iteration():
             print("no excitations left!")
             return -1
         currently_occupied = []
+        # annihilation, pool decay, pq decay, q decay
+        pop_loss = [False] * 4
         # the [0] is because nonzero() returns a tuple
         # and the list of nonzero indices is the first bit
         occupied_sites = self.n_i.nonzero()[0]
@@ -118,10 +123,12 @@ class Iteration():
                 # annihilation
                 print("po ann from trimer {}".format(ind))
                 self.n_i[ind] -= 2
+                pop_loss[0] = True
             elif (q == len(self.transitions[ind]) - 2):
                 # decay
                 print("po decay from trimer {}".format(ind))
                 self.n_i[ind] -= 1
+                pop_loss[1] = True
             elif (q == len(self.transitions[ind]) - 3):
                 # hop to pre-quencher
                 print("po->pq from trimer {}".format(ind))
@@ -167,6 +174,7 @@ class Iteration():
                 choice = self.rng.integers(low=0, high=len(self.previous_pool))
                 del self.previous_pool[choice]
                 print("previous pool = {}".format(self.previous_pool))
+                pop_loss[2] = True
         elif ind == self.n_sites - 1:
             # quencher
             (q, k_tot) = select_process(self.transitions[ind], rand1)
@@ -182,21 +190,31 @@ class Iteration():
                 choice = self.rng.integers(low=0, high=len(self.previous_pool))
                 del self.previous_pool[choice]
                 print("previous pool = {}".format(self.previous_pool))
+                pop_loss[3] = True
         # i think this is correct???? need to figure out
         self.t -= np.log(rand2 / (k_tot)) * self.rates.hopping_time
+        self.ti.append(self.t)
+        if any(pop_loss):
+            # add this time to the relevant stat
+            # we only do one move at a time, so only one of pop_loss
+            # can be true at any one time; hence it's safe to do [0][0]
+            self.loss_times[np.nonzero(pop_loss)[0][0]].append(self.t)
         return 0
 
     def draw(self, filename):
         '''
-        draw the system after one step.
-        the tuples here with the positions are horrible, i know,
-        but they work
+        draw the current state of the system.
+        pretty ugly to do this manually in opencv
+        imo. but it's quick and it works
         '''
+        font = cv2.FONT_HERSHEY_DUPLEX
         xmax = np.max([np.abs(t.x) for t in self.aggregate.trimers])
         scale = 4
-        font = cv2.FONT_HERSHEY_DUPLEX
-        img = np.zeros((2 * scale * int(xmax + 4. * r) + 200,
-            2 * scale * int(xmax + 4. * r) + 200, 3), np.uint8)
+        pic_side = (2 * scale * int(xmax + 4 * r))
+        # the + 200 is to add space to put pre-quencher,
+        # quencher, time and population details in
+        img = np.zeros((pic_side + 200,
+            pic_side + 200, 3), np.uint8)
         for i, t in enumerate(self.aggregate.trimers):
             cv2.circle(img, (int(scale * (t.y + xmax + 2. * r)),
                 int(scale * (t.x + xmax + 2. * r))), 
@@ -212,31 +230,31 @@ class Iteration():
                         font, 0.75, (255, 255, 255), 3)
         # pre-quencher
         pq_colour = (0, 94, 20)
-        cv2.rectangle(img, pt1=(2 * scale * int(xmax + 4 * r) + 50, 100), 
-            pt2=(2 * scale * int(xmax + 4 * r) + 100, 150),
+        cv2.rectangle(img, pt1=(pic_side + 5, 100), 
+            pt2=(pic_side + 55, 150),
             color=pq_colour, thickness=-1)
         cv2.putText(img, "{:2d}".format(self.n_i[-2]),
-                (2 * scale * int(xmax + 4 * r) + 50, 135),
+                (pic_side + 5, 135),
                 font, 1, (255, 255, 255), 2)
         cv2.putText(img, "PQ",
-                (2 * scale * int(xmax + 4 * r) + 55, 90),
+                (pic_side + 15, 90),
                 font, 0.75, pq_colour, 3)
         # quencher
         q_colour = (60, 211, 242)
-        cv2.rectangle(img, pt1=(2 * scale * int(xmax + 4 * r) + 50, 200), 
-            pt2=(2 * scale * int(xmax + 4 * r) + 100, 250),
+        cv2.rectangle(img, pt1=(pic_side + 5, 200), 
+            pt2=(pic_side + 55, 250),
             color=q_colour, thickness=-1)
         cv2.putText(img, "{:2d}".format(self.n_i[-1]),
-                (2 * scale * int(xmax + 4 * r) + 50, 235),
+                (pic_side + 5, 235),
                 font, 1, (255, 255, 255), 2)
         cv2.putText(img, "Q",
-                (2 * scale * int(xmax + 4 * r) + 55, 190),
+                (pic_side + 20, 190),
                 font, 0.75, q_colour, 3)
-        cv2.putText(img, "t = {:6.2f} ps".format(self.t),
-                (2 * scale * int(xmax + 4 * r) + 5, 300),
+        cv2.putText(img, "t = {:6.2f}ps".format(self.t),
+                (pic_side + 5, 300),
                 font, 0.75, (255, 255, 255), 2)
         cv2.putText(img, "n = {:02d}".format(np.sum(self.n_i)),
-                (2 * scale * int(xmax + 4 * r) + 5, 350),
+                (pic_side + 5, 350),
                 font, 0.75, (255, 255, 255), 2)
         cv2.imwrite(filename, img)
 
@@ -261,3 +279,5 @@ if __name__ == "__main__":
     rates = Rates(25., 4000., 4000., 14., 7., 1., 20., np.inf, 0.5)
     agg = theoretical_aggregate(r, 2.5*r, lattice_type, n_iter)
     it = Iteration(agg, rates, 0, 100, 20)
+    print(it.ti)
+    print(it.loss_times)

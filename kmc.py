@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import sys, os
 import numpy as np
 import cv2
 from trimer import Aggregate, theoretical_aggregate
@@ -11,21 +12,22 @@ class Rates():
     compared to a hopping rate of 20ps^{-1} gives a rate of 20/0.4 = 50.
     Give as equivalent times in ps!
     '''
-    def __init__(self, hopping_time, tau_pool, tau_pq, tau_q,
+    def __init__(self, tau_hop, tau_pool, tau_pq, tau_q,
             t_po_pq, t_pq_po, t_pq_q, t_q_pq, t_annihilation):
-        self.hopping_time = hopping_time
+        self.tau_hop = tau_hop
         self.hop = 1.
-        self.g_pool  = (1. / tau_pool) * hopping_time
-        self.g_pq    = (1. / tau_pq) * hopping_time
-        self.g_q     = (1. / tau_q) * hopping_time
-        self.k_po_pq = (1. / t_po_pq) * hopping_time
-        self.k_pq_po = (1. / t_pq_po) * hopping_time
-        self.k_pq_q  = (1. / t_pq_q) * hopping_time
-        self.k_q_pq  = (1. / t_q_pq) * hopping_time
-        self.k_ann   = (1. / t_annihilation) * hopping_time
+        self.g_pool  = self.tau_hop / tau_pool
+        self.g_pq    = self.tau_hop / tau_pq
+        self.g_q     = self.tau_hop / tau_q
+        self.k_po_pq = self.tau_hop / t_po_pq
+        self.k_pq_po = self.tau_hop / t_pq_po
+        self.k_pq_q  = self.tau_hop / t_pq_q
+        self.k_q_pq  = self.tau_hop / t_q_pq
+        self.k_ann   = self.tau_hop / t_annihilation
 
 class Iteration():
-    def __init__(self, aggregate, rates, seed, n_steps, n_excitations):
+    def __init__(self, aggregate, rates, seed,
+            n_steps, n_excitations, verbose=False):
         self.aggregate = aggregate
         self.rates = rates
         self.rng = np.random.default_rng(seed=seed)
@@ -43,6 +45,10 @@ class Iteration():
         # four ways to lose population: annihilation, decay from a
         # chl pool (trimer), decay from pre-quencher, decay from quencher
         self.loss_times = [[] for _ in range(4)]
+        if verbose:
+            self.output = sys.stdout
+        else:
+            self.output = open(os.devnull, "w")
         self.kmc_setup()
         for i in range(self.n_st):
             print("Step {}, time = {:8.3e}".format(i, self.t))
@@ -100,7 +106,8 @@ class Iteration():
         for i in range(len(occupied_sites)):
             for j in range(self.n_i[occupied_sites[i]]):
                 currently_occupied.append(occupied_sites[i])
-        print("Currently occupied = {}".format(currently_occupied))
+        print("Currently occupied = {}".format(currently_occupied), file=self.output)
+        # print("Currently occupied = {}".format(currently_occupied))
         i = self.rng.integers(low=0, high=len(currently_occupied))
         rand1 = self.rng.random()
         rand2 = self.rng.random()
@@ -112,6 +119,7 @@ class Iteration():
                 (q, k_tot) = select_process(self.transitions[ind], rand1)
             else:
                 (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
+            print("q = {}, kp = {}".format(q, self.transitions[ind]), file=self.output)
             '''
             q is a number on [0, len(self.transitions[ind]]
             but can only be len(self.transitions[ind]) if n >= 2.
@@ -121,26 +129,28 @@ class Iteration():
             '''
             if (q == len(self.transitions[ind]) - 1):
                 # annihilation
-                print("po ann from trimer {}".format(ind))
+                print("po ann from trimer {}".format(ind), file=self.output)
                 self.n_i[ind] -= 2
                 pop_loss[0] = True
             elif (q == len(self.transitions[ind]) - 2):
                 # decay
-                print("po decay from trimer {}".format(ind))
+                print("po decay from trimer {}".format(ind), file=self.output)
                 self.n_i[ind] -= 1
                 pop_loss[1] = True
             elif (q == len(self.transitions[ind]) - 3):
                 # hop to pre-quencher
-                print("po->pq from trimer {}".format(ind))
+                print("po->pq from trimer {}".format(ind), file=self.output)
                 self.n_i[ind] -= 1
                 self.n_i[-2]  += 1
                 self.previous_pool.append(ind)
-                print("previous pool = {}".format(self.previous_pool))
+                print("previous pool = {}".format(self.previous_pool), file=self.output)
             else:
                 # hop to neighbour
-                print(q, ind, [self.aggregate.trimers[ind].get_neighbours()[j].index for j in range(len(self.aggregate.trimers[ind].get_neighbours()))])
+                print(q, ind,
+                        [self.aggregate.trimers[ind].get_neighbours()[j].index 
+                        for j in range(len(self.aggregate.trimers[ind].get_neighbours()))], file=self.output)
                 nn = self.aggregate.trimers[ind].get_neighbours()[q].index
-                print("neighbour: {} to {}".format(ind, nn))
+                print("neighbour: {} to {}".format(ind, nn), file=self.output)
                 self.n_i[ind] -= 1
                 self.n_i[self.aggregate.trimers[ind].get_neighbours()[q].index] += 1
         elif ind == self.n_sites - 2:
@@ -159,40 +169,44 @@ class Iteration():
                 choice = self.rng.integers(low=0, high=len(self.previous_pool))
                 self.n_i[ind] -= 1
                 self.n_i[self.previous_pool[choice]] += 1
-                print("pq->po: ind {}, choice {}, previous pool = {}".format(ind, choice, self.previous_pool))
+                print("pq->po: ind {}, choice {}, previous pool = {}".format(
+                    ind, choice, self.previous_pool), file=self.output)
                 del self.previous_pool[choice]
-                print("pq->po after delete: previous pool = {}".format(self.previous_pool))
+                print("pq->po after delete: previous pool = {}".format(
+                    self.previous_pool), file=self.output)
             elif (q == 1):
                 # hop to quencher
-                print("pq->q")
+                print("pq->q", file=self.output)
                 self.n_i[ind] -= 1
                 self.n_i[-1] = 1
             elif (q == 2):
                 # decay
-                print("pq decay")
+                print("pq decay", file=self.output)
                 self.n_i[ind] -= 1
                 choice = self.rng.integers(low=0, high=len(self.previous_pool))
                 del self.previous_pool[choice]
-                print("previous pool = {}".format(self.previous_pool))
+                print("previous pool = {}".format(self.previous_pool)
+                        , file=self.output)
                 pop_loss[2] = True
         elif ind == self.n_sites - 1:
             # quencher
             (q, k_tot) = select_process(self.transitions[ind], rand1)
             if (q == 0):
                 # hop back to pre-quencher
-                print("q->pq")
+                print("q->pq", file=self.output)
                 self.n_i[ind] -= 1
                 self.n_i[-2] += 1
             elif (q == 1):
                 # decay
-                print("q decay")
+                print("q decay", file=self.output)
                 self.n_i[ind] -= 1
                 choice = self.rng.integers(low=0, high=len(self.previous_pool))
                 del self.previous_pool[choice]
-                print("previous pool = {}".format(self.previous_pool))
+                print("previous pool = {}".format(self.previous_pool),
+                        file=self.output)
                 pop_loss[3] = True
         # i think this is correct???? need to figure out
-        self.t -= np.log(rand2 / (k_tot)) * self.rates.hopping_time
+        self.t -= np.log(rand2 / (k_tot * self.rates.tau_hop))
         self.ti.append(self.t)
         if any(pop_loss):
             # add this time to the relevant stat
@@ -274,10 +288,15 @@ def select_process(k_p, rand):
 if __name__ == "__main__":
     r = 5.
     lattice_type = "honeycomb"
-    n_iter = 7
+    n_iter = 5
+    n_iterations = 2
 
-    rates = Rates(25., 4000., 4000., 14., 7., 1., 20., np.inf, 0.5)
+    rates = Rates(5., 4000., 4000., 14., 7., 1., 20., np.inf, 0.5)
     agg = theoretical_aggregate(r, 2.5*r, lattice_type, n_iter)
-    it = Iteration(agg, rates, 0, 100, 20)
-    print(it.ti)
-    print(it.loss_times)
+    loss_times = []
+    for i in range(n_iterations):
+        it = Iteration(agg, rates, i, 1000, 20)
+        print(it.ti)
+        print(it.loss_times)
+        loss_times.append(it.loss_times)
+    print("Losses:", loss_times)

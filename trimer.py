@@ -4,53 +4,6 @@ import numpy as np
 from shapefill import ShapeFill
 import cv2
 
-class Trimer():
-    '''
-    Base trimer class - various types of quenched trimers
-    will be derived from this. Very few common parameters tbh.
-    '''
-    def __init__(self, x, y, r, decay_time=4.):
-        self.x, self.y, self.r = x, y, r
-        self.decay_time = decay_time
-        self.neighbours = []
-
-    def get_decay_time(self):
-        ''' Return decay time of this trimer '''
-        return self.decay_time
-
-    def get_neighbours(self):
-        ''' Return list of neighbours of this trimer '''
-        return self.neighbours
-
-    def overlap_with(self, x, y, r):
-        """Does this trimer overlap with another at (x, y)? """
-        d = np.hypot(x-self.x, y-self.y)
-        return d < r + self.r
-
-    def is_nn(self, x, y, nn_cutoff):
-        """Do we consider this trimer as a neighbour to one at (x, y)?"""
-        d = np.hypot(x-self.x, y-self.y)
-        return d < nn_cutoff
-
-    def draw_circle(self, img, r):
-        """ draw this trimer """
-        cv2.circle(img, (self.y, self.x), r, (26, 0, 153), -1, cv2.LINE_AA)
-
-    def draw_neighbour(self, x, y, img):
-        """ draw a line between two neighbours """
-        cv2.line(img, (self.y, self.x), (y, x), (232, 139, 39))
-
-    def _move(self, x, y):
-        """ move to (cx, cy). assumes we've checked for collisions! """
-        self.x = x
-        self.y = y
-
-    def _add_neighbour(self, trimer):
-        self.neighbours.append(trimer)
-
-    def _add_index(self, i):
-        self.index = i
-
 class State:
     def __init__(self, type, rates, lifetime):
         self.type = type
@@ -188,6 +141,65 @@ def theoretical_aggregate(r, nn_cutoff, lattice_type, n_iter):
         print("Number of trimers placed = {}".format(len(trimers)))
         img_binary = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         return Aggregate(trimers, A, img_binary)
+
+def save_aggregate(filename, agg):
+    import pickle
+    with open(filename, "wb") as f:
+        pickle.dump(agg, f)
+        return
+
+def load_aggregate(filename):
+    import pickle
+    with open(filename, "rb") as f:
+        agg = pickle.load(f)
+        return agg
+
+class Trimer():
+    '''
+    Base trimer class - various types of quenched trimers
+    will be derived from this. Very few common parameters tbh.
+    '''
+    def __init__(self, x, y, r, decay_time=4.):
+        self.x, self.y, self.r = x, y, r
+        self.decay_time = decay_time
+        self.neighbours = []
+
+    def get_decay_time(self):
+        ''' Return decay time of this trimer '''
+        return self.decay_time
+
+    def get_neighbours(self):
+        ''' Return list of neighbours of this trimer '''
+        return self.neighbours
+
+    def overlap_with(self, x, y, r):
+        """Does this trimer overlap with another at (x, y)? """
+        d = np.hypot(x-self.x, y-self.y)
+        return d < r + self.r
+
+    def is_nn(self, x, y, nn_cutoff):
+        """Do we consider this trimer as a neighbour to one at (x, y)?"""
+        d = np.hypot(x-self.x, y-self.y)
+        return d < nn_cutoff
+
+    def draw_circle(self, img, r):
+        """ draw this trimer """
+        cv2.circle(img, (self.y, self.x), r, (26, 0, 153), -1, cv2.LINE_AA)
+
+    def draw_neighbour(self, x, y, img):
+        """ draw a line between two neighbours """
+        cv2.line(img, (self.y, self.x), (y, x), (232, 139, 39))
+
+    def _move(self, x, y):
+        """ move to (cx, cy). assumes we've checked for collisions! """
+        self.x = x
+        self.y = y
+
+    def _add_neighbour(self, trimer):
+        self.neighbours.append(trimer)
+
+    def _add_index(self, i):
+        self.index = i
 
 class Aggregate:
     '''

@@ -130,7 +130,7 @@ class Iteration():
             if (q == len(self.transitions[ind]) - 1):
                 # annihilation
                 print("po ann from trimer {}".format(ind), file=self.output)
-                self.n_i[ind] -= 2
+                self.n_i[ind] -= 1
                 pop_loss[0] = True
             elif (q == len(self.transitions[ind]) - 2):
                 # decay

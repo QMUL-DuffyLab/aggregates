@@ -2,4 +2,5 @@
 *.pdf
 components/*
 frames/*
+out/*
 __pycache__/*

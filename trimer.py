@@ -163,6 +163,7 @@ class Trimer():
         self.x, self.y, self.r = x, y, r
         self.decay_time = decay_time
         self.neighbours = []
+        self.quencher = False
 
     def get_decay_time(self):
         ''' Return decay time of this trimer '''

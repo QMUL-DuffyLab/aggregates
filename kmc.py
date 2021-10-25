@@ -29,7 +29,7 @@ class Rates():
 
 class Iteration():
     def __init__(self, aggregate, rates, seed, rho_quenchers,
-            n_steps, n_excitations, verbose=False):
+            n_steps, n_excitations, verbose=False, draw_frames=False):
         if verbose:
             self.output = sys.stdout
         else:
@@ -45,7 +45,7 @@ class Iteration():
         self.n_sites = len(self.aggregate.trimers) + 2
         self.n_i = np.zeros(self.n_sites, dtype=np.uint8)
         self.previous_pool = np.zeros(self.n_e, dtype=int)
-        self.transitions = np.array(self.transition_calc())
+        self.quenchers = np.full(len(self.aggregate.trimers), False, dtype=bool)
         self.t = 0. # probably need to write a proper init function
         self.ti = [0.]
         # keep track of time spent on pre-quencher and quencher?
@@ -55,25 +55,24 @@ class Iteration():
         # chl pool (trimer), decay from pre-quencher, decay from quencher
         self.loss_times = np.full((4, self.n_e), np.nan)
         self.kmc_setup(rho_quenchers)
+        self.transitions = np.array(self.transition_calc())
         if self.n_st > 0:
             for i in range(self.n_st):
                 print("Step {}, time = {:8.3e}".format(i, self.t))
-                if i % 100 == 0:
-                    self.draw("frames/{:03d}_{:03d}.jpg".format(i, seed))
+                if draw_frames:
+                    if i % 100 == 0:
+                        self.draw("frames/{:03d}_{:03d}.jpg".format(i, seed))
                 self.kmc_step()
-                if status < 0:
-                    print("Nonzero status returned by kmc_step() - breaking")
-                    break
         else:
             i = 0
             while self.n_current > 0:
                 self.kmc_step()
                 i += 1
-                if i % 100 == 0:
-                    self.draw("frames/{:03d}_{:03d}.jpg".format(i, seed))
+                if draw_frames:
+                    if i % 100 == 0:
+                        self.draw("frames/{:03d}_{:03d}.jpg".format(i, seed))
         self.kmc_cleanup()
             
-
     def transition_calc(self):
         print(self.n_sites)
         self.transitions = [[] for _ in range(self.n_sites)]
@@ -83,7 +82,7 @@ class Iteration():
                 # trimer (pool)
                 for j in range(len(self.aggregate.trimers[i].get_neighbours())):
                     t.append(rates.hop)
-                if self.aggregate.trimers[i].quencher:
+                if self.quenchers[i]:
                     t.append(rates.k_po_pq)
                 else:
                     t.append(0.)
@@ -107,7 +106,10 @@ class Iteration():
         for i in range(self.n_q):
             choice = self.rng.integers(low=0,
                 high=len(self.aggregate.trimers))
-            self.aggregate.trimers[choice].quencher = True
+            while self.quenchers[choice]:
+                choice = self.rng.integers(low=0,
+                    high=len(self.aggregate.trimers))
+            self.quenchers[choice] = True
 
         for i in range(self.n_e):
             # only generate excitations on the pools, not quenchers
@@ -117,9 +119,6 @@ class Iteration():
             self.currently_occupied[i] = choice
 
     def kmc_cleanup(self):
-        for i in range(len(self.aggregate.trimers)):
-            self.aggregate.trimers[i].quencher = False
-
         for i in range(self.n_e):
             # only generate excitations on the pools, not quenchers
             choice = self.rng.integers(low=0,
@@ -135,8 +134,8 @@ class Iteration():
         if self.n_current == 0:
             print("no excitations left!")
             return -1
-        on_pq = [False for _ in range(n_current)]
-        on_q = [False for _ in range(n_current)]
+        on_pq = [False for _ in range(self.n_e)]
+        on_q = [False for _ in range(self.n_e)]
         for i in range(self.n_current):
             # annihilation, pool decay, pq decay, q decay
             pop_loss = [False for _ in range(4)]
@@ -145,9 +144,9 @@ class Iteration():
             i = self.rng.integers(low=0, high=self.n_current)
             rand1 = self.rng.random()
             rand2 = self.rng.random()
-            print(self.n_current, i, file=self.output)
             ind = self.currently_occupied[np.where(self.currently_occupied >= 0)][i]
             i = np.nonzero(self.currently_occupied == ind)[0][0]
+            print(self.n_current, i, ind, file=self.output)
             if ind < self.n_sites - 2:
                 # pool
                 n = self.n_i[ind]
@@ -178,7 +177,7 @@ class Iteration():
                     self.n_i[-2]  += 1
                     self.currently_occupied[i] = self.n_sites - 2
                     self.previous_pool[i] = ind
-                    print("previous pool = {}".format(self.previous_pool),
+                    print("i = {}, on_pq = {}, previous pool = {}".format(i, on_pq, self.previous_pool),
                             file=self.output)
                     on_pq[i] = True
                 else:
@@ -276,7 +275,7 @@ class Iteration():
         img = np.zeros((pic_side + 200,
             pic_side + 200, 3), np.uint8)
         for i, t in enumerate(self.aggregate.trimers):
-            if t.quencher:
+            if self.quenchers[i]:
                 colour = (232, 139, 39)
             else:
                 colour = (255, 255, 255)
@@ -335,32 +334,80 @@ def select_process(k_p, rand):
         i += 1
     return (i, k_tot)
 
+def estimate_posterior_mean(loss_times):
+    # needs tweaking - atm it's doing the mean for the 1st one to go,
+    # then the mean for the second one to go, etc.
+    # think about how to fix this!!
+    lambda_i = []
+    for k_i in loss_times:
+        k_i = k_i[k_i > 0.].flatten()
+        print(k_i)
+        if len(k_i) > 0:
+            l = 1./len((k_i.flatten())) * np.sum(k_i.flatten())
+        else:
+            l = np.nan
+        lambda_i.append(l)
+    return lambda_i
+
 if __name__ == "__main__":
     r = 5.
     lattice_type = "honeycomb"
-    n_iter = 5
-    n_iterations = 1
+    n_iter = 7
+    n_iterations = 1000
+    rho_quenchers = 0.25
+    n_excitons = 20
 
     rates = Rates(20., 4000., 4000., 14., 7., 1., 20., np.inf, 16.)
     agg = theoretical_aggregate(r, 2.5*r, lattice_type, n_iter)
     loss_times = []
     for i in range(n_iterations):
         print("iteration {}:".format(i))
-        it = Iteration(agg, rates, i, 1., 0, 2, True)
+        it = Iteration(agg, rates, i, rho_quenchers, 0, 20, False)
         print("Loss times:")
         print("annihilations: ",it.loss_times[0])
         print("pool decays: ",it.loss_times[1])
         print("pq decays: ",it.loss_times[2])
         print("q decays: ",it.loss_times[3])
         loss_times.append(it.loss_times)
+        print("PQ times:") # don't work yet
+        print(it.time_on_pq)
+        print("Q times:")
+        print(it.time_on_q)
+
     loss_times = np.array(loss_times)
-    print("Annihilations", loss_times[:, 0, :])
-    print("Pool decays", loss_times[:, 1, :])
-    print("Pre-quencher decays", loss_times[:, 2, :])
-    print("Quencher decays", loss_times[:, 3, :])
+    annihilations = np.transpose(loss_times[:, 0, :])
+    pool_decays = np.transpose(loss_times[:, 1, :])
+    pq_decays = np.transpose(loss_times[:, 2, :])
+    q_decays = np.transpose(loss_times[:, 3, :])
+    print("Annihilations", annihilations)
+    print("Pool decays", pool_decays)
+    print("Pre-quencher decays", pq_decays)
+    print("Quencher decays", q_decays)
+    '''
+    NB: i am estimating for each different exciton separately,
+    then I think we take an average of those? statistically I think
+    that's the right thing to do, but should think about it.
+    Also need to do an error estimation on these!
+    '''
+    ann_lambda = estimate_posterior_mean(annihilations)
+    po_lambda = estimate_posterior_mean(pool_decays)
+    pq_lambda = estimate_posterior_mean(pq_decays)
+    q_lambda = estimate_posterior_mean(q_decays)
+    print("Posterior means for annihilation: ", ann_lambda)
+    print("Posterior means for pool decays: ", po_lambda)
+    print("Posterior means for pq decays: ", pq_lambda)
+    print("Posterior means for q decays: ", q_lambda)
+    np.savetxt("out/ann_means.dat", ann_lambda)
+    np.savetxt("out/po_means.dat", po_lambda)
+    np.savetxt("out/pq_means.dat", pq_lambda)
+    np.savetxt("out/q_means.dat", q_lambda)
+
     l = np.column_stack(np.array([loss_times[:, i, :].flatten() for i in range(4)]))
     np.savetxt("out/decays.dat", l)
-    ax = sns.swarmplot(data=l, edgecolor="grey")
+    if n_iterations > 100:
+        ax = sns.violinplot(data=l, edgecolor="grey")
+    else:
+        ax = sns.swarmplot(data=l, edgecolor="grey")
     ax.set_xticklabels(["Ann.", "Pool", "PQ", "Q"])
     ax.set_ylabel("Time (ps)")
     plt.savefig("frames/test_plot.pdf")

@@ -351,11 +351,13 @@ def estimate_posterior_mean(loss_times):
 
 if __name__ == "__main__":
     r = 5.
-    lattice_type = "honeycomb"
+    lattice_type = "square"
     n_iter = 7
     n_iterations = 1000
     rho_quenchers = 0.25
     n_excitons = 20
+    file_prefix = "{}_{:d}_{:3.2f}_{:d}".format(lattice_type, 
+            n_iterations, rho_quenchers, n_excitons)
 
     rates = Rates(20., 4000., 4000., 14., 7., 1., 20., np.inf, 16.)
     agg = theoretical_aggregate(r, 2.5*r, lattice_type, n_iter)
@@ -384,30 +386,23 @@ if __name__ == "__main__":
     print("Pre-quencher decays", pq_decays)
     print("Quencher decays", q_decays)
     '''
-    NB: i am estimating for each different exciton separately,
-    then I think we take an average of those? statistically I think
-    that's the right thing to do, but should think about it.
-    Also need to do an error estimation on these!
+    NB: i am estimating for each decay mode separately here
+    which is probably wrong. tau is just a straight estimation of everything.
+    Also need to figure out errors on these!
     '''
-    ann_lambda = estimate_posterior_mean(annihilations)
-    po_lambda = estimate_posterior_mean(pool_decays)
-    pq_lambda = estimate_posterior_mean(pq_decays)
-    q_lambda = estimate_posterior_mean(q_decays)
-    print("Posterior means for annihilation: ", ann_lambda)
-    print("Posterior means for pool decays: ", po_lambda)
-    print("Posterior means for pq decays: ", pq_lambda)
-    print("Posterior means for q decays: ", q_lambda)
-    np.savetxt("out/ann_means.dat", ann_lambda)
-    np.savetxt("out/po_means.dat", po_lambda)
-    np.savetxt("out/pq_means.dat", pq_lambda)
-    np.savetxt("out/q_means.dat", q_lambda)
-
+    l = np.stack(np.array([loss_times[:, i, :].flatten() for i in range(4)]))
+    lambda_i = estimate_posterior_mean(l)
+    print("Posterior means: ", lambda_i)
+    tau = estimate_posterior_mean(loss_times.flatten())
+    print("Total posterior mean: ", tau)
+    np.savetxt("out/{}_tau.dat".format(file_prefix), tau)
+    np.savetxt("out/{}_means.dat".format(file_prefix), lambda_i)
     l = np.column_stack(np.array([loss_times[:, i, :].flatten() for i in range(4)]))
-    np.savetxt("out/decays.dat", l)
+    np.savetxt("out/{}_decays.dat".format(file_prefix), l)
     if n_iterations > 100:
         ax = sns.violinplot(data=l, edgecolor="grey")
     else:
         ax = sns.swarmplot(data=l, edgecolor="grey")
     ax.set_xticklabels(["Ann.", "Pool", "PQ", "Q"])
     ax.set_ylabel("Time (ps)")
-    plt.savefig("frames/test_plot.pdf")
+    plt.savefig("frames/{}_plot.pdf".format(file_prefix))

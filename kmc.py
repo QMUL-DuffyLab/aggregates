@@ -48,6 +48,7 @@ class Iteration():
         self.quenchers = np.full(len(self.aggregate.trimers), False, dtype=bool)
         self.t = 0. # probably need to write a proper init function
         self.ti = [0.]
+        self.emissions = np.full((self.n_e), np.nan)
         # keep track of time spent on pre-quencher and quencher?
         self.time_on_pq = np.zeros(self.n_e, dtype=float)
         self.time_on_q = np.zeros(self.n_e, dtype=float)
@@ -154,6 +155,8 @@ class Iteration():
                     (q, k_tot) = select_process(self.transitions[ind], rand1)
                 else:
                     (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
+                # no annihilation
+                # (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
                 print("q = {}, kp = {}".format(q, self.transitions[ind]),
                         file=self.output)
                 if (q == len(self.transitions[ind]) - 1):
@@ -252,6 +255,10 @@ class Iteration():
             # i think this is correct???? need to figure out
             self.t -= np.log(rand2 / (k_tot * self.rates.tau_hop))
             self.ti.append(self.t)
+            if pop_loss[1] or pop_loss[2]:
+                # emissive decays
+                # print("EMISSION AT T = {:6.3e}".format(self.t))
+                self.emissions[i] = self.t
             if any(pop_loss):
                 # add this time to the relevant stat
                 # we only do one move at a time, so only one of pop_loss
@@ -341,7 +348,6 @@ def estimate_posterior_mean(loss_times):
     lambda_i = []
     for k_i in loss_times:
         k_i = k_i[k_i > 0.].flatten()
-        print(k_i)
         if len(k_i) > 0:
             l = 1./len((k_i.flatten())) * np.sum(k_i.flatten())
         else:
@@ -351,26 +357,37 @@ def estimate_posterior_mean(loss_times):
 
 if __name__ == "__main__":
     r = 5.
-    lattice_type = "square"
+    lattice_type = "honeycomb"
     n_iter = 7
     n_iterations = 1000
-    rho_quenchers = 0.25
+    rho_quenchers = 0.1
     n_excitons = 20
-    file_prefix = "{}_{:d}_{:3.2f}_{:d}".format(lattice_type, 
+    rates_dict = {
+     'lut_eet': Rates(20., 4000., 4000., 14., 
+         7., 1., np.inf, np.inf, 16.),
+     'schlau_cohen': Rates(20., 4000., 4000., 14., 
+         7., 1., 0.4, 0.4, 16.)
+     }
+    rates_key = 'schlau_cohen'
+    rates = rates_dict[rates_key]
+
+    file_prefix = "{}_{}_{:d}_{:3.2f}_{:d}".format(rates_key, lattice_type, 
             n_iterations, rho_quenchers, n_excitons)
 
-    rates = Rates(20., 4000., 4000., 14., 7., 1., 20., np.inf, 16.)
     agg = theoretical_aggregate(r, 2.5*r, lattice_type, n_iter)
     loss_times = []
+    emissions = []
     for i in range(n_iterations):
         print("iteration {}:".format(i))
-        it = Iteration(agg, rates, i, rho_quenchers, 0, 20, False)
+        it = Iteration(agg, rates, i, 
+                rho_quenchers, 0, n_excitons, False)
         print("Loss times:")
         print("annihilations: ",it.loss_times[0])
         print("pool decays: ",it.loss_times[1])
         print("pq decays: ",it.loss_times[2])
         print("q decays: ",it.loss_times[3])
         loss_times.append(it.loss_times)
+        emissions.append(it.emissions)
         print("PQ times:") # don't work yet
         print(it.time_on_pq)
         print("Q times:")
@@ -393,16 +410,29 @@ if __name__ == "__main__":
     l = np.stack(np.array([loss_times[:, i, :].flatten() for i in range(4)]))
     lambda_i = estimate_posterior_mean(l)
     print("Posterior means: ", lambda_i)
-    tau = estimate_posterior_mean(loss_times.flatten())
+    l = np.ravel(loss_times)[np.ravel(loss_times) > 0.]
+    tau = np.sum(l) / len(l) 
     print("Total posterior mean: ", tau)
-    np.savetxt("out/{}_tau.dat".format(file_prefix), tau)
+    np.savetxt("out/{}_tau.dat".format(file_prefix), [tau])
     np.savetxt("out/{}_means.dat".format(file_prefix), lambda_i)
     l = np.column_stack(np.array([loss_times[:, i, :].flatten() for i in range(4)]))
     np.savetxt("out/{}_decays.dat".format(file_prefix), l)
-    if n_iterations > 100:
-        ax = sns.violinplot(data=l, edgecolor="grey")
+    if n_iterations >= 100:
+        ax = sns.histplot(data=l, element="step", fill=False)
+        # otherwise the legend will just be the array index
+        legend = ax.get_legend()
+        handles = legend.legendHandles
+        legend.remove()
+        ax.legend(handles, ["Ann.", "Pool", "PQ", "Q"], title="Decays")
+        ax.set_xlabel("Time (ps)")
+        plt.axvline(x=tau, ls="--", c='k')
     else:
         ax = sns.swarmplot(data=l, edgecolor="grey")
-    ax.set_xticklabels(["Ann.", "Pool", "PQ", "Q"])
-    ax.set_ylabel("Time (ps)")
+        ax.set_xticklabels(["Ann.", "Pool", "PQ", "Q"])
+        ax.set_ylabel("Time (ps)")
+        plt.axhline(y=tau, ls="--", c='k')
     plt.savefig("frames/{}_plot.pdf".format(file_prefix))
+    plt.close()
+    ax = sns.histplot(data=np.ravel(emissions), element="step", binwidth=50., fill=False)
+    ax.set_xlabel("Time (ps)")
+    plt.savefig("out/{}_emissions.pdf".format(file_prefix))

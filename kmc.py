@@ -274,6 +274,8 @@ class Iteration():
                 # can be true at any one time; hence it's safe to do [0][0]
                 # self.loss_times[np.nonzero(pop_loss)[0][0]].append(self.t)
                 self.loss_times[np.nonzero(pop_loss)[0][0]][self.n_current] = self.t
+                # zero the time to get time between decays!
+                self.t = 0.
         return
 
     def draw(self, filename):
@@ -364,13 +366,16 @@ def estimate_posterior_mean(loss_times):
         lambda_i.append(l)
     return lambda_i
 
+def poisson(k, lamb):
+    return (lamb**k/factorial(k)) * np.exp(-lamb)
+
 if __name__ == "__main__":
     r = 5.
     lattice_type = "honeycomb"
-    n_iter = 5
-    n_iterations = 10
+    n_iter = 10
+    n_iterations = 100
     rho_quenchers = 0.
-    n_excitons = 2
+    n_excitons = 10
     rates_dict = {
      'lut_eet': Rates(20., 4000., 4000., 14., 
          7., 1., 20., np.inf, 16.),
@@ -420,8 +425,8 @@ if __name__ == "__main__":
     lambda_i = estimate_posterior_mean(l)
     print("Posterior means: ", lambda_i)
     l = np.ravel(loss_times)[np.ravel(loss_times) > 0.]
-    delta_l = np.array([l[i] - l[i - 1] for i in range(1, len(l))])
-    print(delta_l)
+    # delta_l = np.array([l[i] - l[i - 1] for i in range(1, len(l))])
+    # print(delta_l)
     tau = np.sum(l) / len(l) 
     print("Total posterior mean: ", tau)
     np.savetxt("out/{}_tau.dat".format(file_prefix), [tau])

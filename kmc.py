@@ -17,15 +17,24 @@ class Rates():
     def __init__(self, tau_hop, tau_pool, tau_pq, tau_q,
             t_po_pq, t_pq_po, t_pq_q, t_q_pq, t_annihilation):
         self.tau_hop = tau_hop
-        self.hop = 1.
-        self.g_pool  = self.tau_hop / tau_pool
-        self.g_pq    = self.tau_hop / tau_pq
-        self.g_q     = self.tau_hop / tau_q
-        self.k_po_pq = self.tau_hop / t_po_pq
-        self.k_pq_po = self.tau_hop / t_pq_po
-        self.k_pq_q  = self.tau_hop / t_pq_q
-        self.k_q_pq  = self.tau_hop / t_q_pq
-        self.k_ann   = self.tau_hop / t_annihilation
+        self.hop     = 1. / tau_hop
+        self.g_pool  = 1. / tau_pool
+        self.g_pq    = 1. / tau_pq
+        self.g_q     = 1. / tau_q
+        self.k_po_pq = 1. / t_po_pq
+        self.k_pq_po = 1. / t_pq_po
+        self.k_pq_q  = 1. / t_pq_q
+        self.k_q_pq  = 1. / t_q_pq
+        self.k_ann   = 1. / t_annihilation
+        # self.hop = 1.
+        # self.g_pool  = self.tau_hop / tau_pool
+        # self.g_pq    = self.tau_hop / tau_pq
+        # self.g_q     = self.tau_hop / tau_q
+        # self.k_po_pq = self.tau_hop / t_po_pq
+        # self.k_pq_po = self.tau_hop / t_pq_po
+        # self.k_pq_q  = self.tau_hop / t_pq_q
+        # self.k_q_pq  = self.tau_hop / t_q_pq
+        # self.k_ann   = self.tau_hop / t_annihilation
 
 class Iteration():
     def __init__(self, aggregate, rates, seed, rho_quenchers,
@@ -150,13 +159,13 @@ class Iteration():
             print(self.n_current, i, ind, file=self.output)
             if ind < self.n_sites - 2:
                 # pool
-                n = self.n_i[ind]
-                if n >= 2:
-                    (q, k_tot) = select_process(self.transitions[ind], rand1)
-                else:
-                    (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
+                # n = self.n_i[ind]
+                # if n >= 2:
+                #     (q, k_tot) = select_process(self.transitions[ind], rand1)
+                # else:
+                #     (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
                 # no annihilation
-                # (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
+                (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
                 print("q = {}, kp = {}".format(q, self.transitions[ind]),
                         file=self.output)
                 if (q == len(self.transitions[ind]) - 1):
@@ -253,7 +262,7 @@ class Iteration():
                             file=self.output)
                     pop_loss[3] = True
             # i think this is correct???? need to figure out
-            self.t -= np.log(rand2 / (k_tot * self.rates.tau_hop))
+            self.t -= 1./ (k_tot) * np.log(rand2)
             self.ti.append(self.t)
             if pop_loss[1] or pop_loss[2]:
                 # emissive decays
@@ -358,20 +367,20 @@ def estimate_posterior_mean(loss_times):
 if __name__ == "__main__":
     r = 5.
     lattice_type = "honeycomb"
-    n_iter = 7
-    n_iterations = 1000
-    rho_quenchers = 0.1
-    n_excitons = 20
+    n_iter = 5
+    n_iterations = 10
+    rho_quenchers = 0.
+    n_excitons = 2
     rates_dict = {
      'lut_eet': Rates(20., 4000., 4000., 14., 
-         7., 1., np.inf, np.inf, 16.),
+         7., 1., 20., np.inf, 16.),
      'schlau_cohen': Rates(20., 4000., 4000., 14., 
          7., 1., 0.4, 0.4, 16.)
      }
     rates_key = 'schlau_cohen'
     rates = rates_dict[rates_key]
 
-    file_prefix = "{}_{}_{:d}_{:3.2f}_{:d}".format(rates_key, lattice_type, 
+    file_prefix = "no_ann_q_{}_{}_{:d}_{:3.2f}_{:d}".format(rates_key, lattice_type, 
             n_iterations, rho_quenchers, n_excitons)
 
     agg = theoretical_aggregate(r, 2.5*r, lattice_type, n_iter)
@@ -411,28 +420,26 @@ if __name__ == "__main__":
     lambda_i = estimate_posterior_mean(l)
     print("Posterior means: ", lambda_i)
     l = np.ravel(loss_times)[np.ravel(loss_times) > 0.]
+    delta_l = np.array([l[i] - l[i - 1] for i in range(1, len(l))])
+    print(delta_l)
     tau = np.sum(l) / len(l) 
     print("Total posterior mean: ", tau)
     np.savetxt("out/{}_tau.dat".format(file_prefix), [tau])
     np.savetxt("out/{}_means.dat".format(file_prefix), lambda_i)
     l = np.column_stack(np.array([loss_times[:, i, :].flatten() for i in range(4)]))
     np.savetxt("out/{}_decays.dat".format(file_prefix), l)
-    if n_iterations >= 100:
-        ax = sns.histplot(data=l, element="step", fill=False)
-        # otherwise the legend will just be the array index
-        legend = ax.get_legend()
-        handles = legend.legendHandles
-        legend.remove()
-        ax.legend(handles, ["Ann.", "Pool", "PQ", "Q"], title="Decays")
-        ax.set_xlabel("Time (ps)")
-        plt.axvline(x=tau, ls="--", c='k')
-    else:
-        ax = sns.swarmplot(data=l, edgecolor="grey")
-        ax.set_xticklabels(["Ann.", "Pool", "PQ", "Q"])
-        ax.set_ylabel("Time (ps)")
-        plt.axhline(y=tau, ls="--", c='k')
+
+    ax = sns.histplot(data=l, element="step", fill=False)
+    # otherwise the legend will just be the array index
+    legend = ax.get_legend()
+    handles = legend.legendHandles
+    legend.remove()
+    ax.legend(handles, ["Ann.", "Pool", "PQ", "Q"], title="Decays")
+    ax.set_xlabel("Time (ps)")
+    plt.axvline(x=tau, ls="--", c='k')
     plt.savefig("frames/{}_plot.pdf".format(file_prefix))
     plt.close()
+
     ax = sns.histplot(data=np.ravel(emissions), element="step", binwidth=50., fill=False)
     ax.set_xlabel("Time (ps)")
     plt.savefig("out/{}_emissions.pdf".format(file_prefix))

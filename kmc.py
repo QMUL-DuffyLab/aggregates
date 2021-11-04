@@ -26,15 +26,6 @@ class Rates():
         self.k_pq_q  = 1. / t_pq_q
         self.k_q_pq  = 1. / t_q_pq
         self.k_ann   = 1. / t_annihilation
-        # self.hop = 1.
-        # self.g_pool  = self.tau_hop / tau_pool
-        # self.g_pq    = self.tau_hop / tau_pq
-        # self.g_q     = self.tau_hop / tau_q
-        # self.k_po_pq = self.tau_hop / t_po_pq
-        # self.k_pq_po = self.tau_hop / t_pq_po
-        # self.k_pq_q  = self.tau_hop / t_pq_q
-        # self.k_q_pq  = self.tau_hop / t_q_pq
-        # self.k_ann   = self.tau_hop / t_annihilation
 
 class Iteration():
     def __init__(self, aggregate, rates, seed, rho_quenchers,
@@ -66,6 +57,8 @@ class Iteration():
         self.loss_times = np.full((4, self.n_e), np.nan)
         self.kmc_setup(rho_quenchers)
         self.transitions = np.array(self.transition_calc())
+        if seed == 0:
+            self.draw("frames/init_{:03d}.jpg".format(seed))
         if self.n_st > 0:
             for i in range(self.n_st):
                 print("Step {}, time = {:8.3e}".format(i, self.t))
@@ -159,13 +152,13 @@ class Iteration():
             print(self.n_current, i, ind, file=self.output)
             if ind < self.n_sites - 2:
                 # pool
-                # n = self.n_i[ind]
-                # if n >= 2:
-                #     (q, k_tot) = select_process(self.transitions[ind], rand1)
-                # else:
-                #     (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
+                n = self.n_i[ind]
+                if n >= 2:
+                    (q, k_tot) = select_process(self.transitions[ind], rand1)
+                else:
+                    (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
                 # no annihilation
-                (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
+                # (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
                 print("q = {}, kp = {}".format(q, self.transitions[ind]),
                         file=self.output)
                 if (q == len(self.transitions[ind]) - 1):
@@ -369,31 +362,67 @@ def estimate_posterior_mean(loss_times):
 def poisson(k, lamb):
     return (lamb**k/factorial(k)) * np.exp(-lamb)
 
+def fit(no_exp, decays, bin_width=100):
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from scipy.optimize import curve_fit
+    bins = np.arange(np.max(decays), step=bin_width)
+    n, bin_edges, patches = plt.hist(decays, bins=bins)
+    bin_centres = 0.5 * (bin_edges[1:] + bin_edges[:-1])
+    if no_exp == 1:
+        def fn(x, lamb):
+            return np.exp(-lamb * x)
+    elif no_exp == 2:
+        def fn(x, lamb1, lamb2):
+            return np.exp(-lamb1 * x) + np.exp(-lamb2 * x)
+    params, cov = curve_fit(fn, bin_centres, n)
+    return params, cov
+
+def lm(no_exp, x, y, rates):
+    ''' use lmfit to a mono or biexponential '''
+    exp = ExponentialModel(prefix='exp1_')
+    pars = exp.guess(y, x=x)
+    pars['exp_decay'].set(value=rates.g_pool)
+    # this should start at the highest count value?
+    pars['exp_amplitude'].set(value=1.)
+    mod = exp
+    if no_exp == 2:
+        exp2 = GaussianModel(prefix='exp2_')
+        pars.update(exp2.make_params())
+        pars['exp2_decay'].set(value=rates.k_ann)
+        # not sure what to try as a guess for this
+        pars['exp2_amplitude'].set(value=1.)
+        mod = mod + exp2
+
+    init = mod.eval(pars, x=x)
+    out = mod.fit()
+     
+
 if __name__ == "__main__":
     r = 5.
     lattice_type = "honeycomb"
-    n_iter = 10
-    n_iterations = 100
-    rho_quenchers = 0.
-    n_excitons = 10
+    n_iter = 8 # 434 trimers for honeycomb
+    n_iterations = 1000
+    rho_quenchers = 0.0
+    n_excitons = 375
     rates_dict = {
      'lut_eet': Rates(20., 4000., 4000., 14., 
-         7., 1., 20., np.inf, 16.),
+         7., 1., 20., np.inf, 24.),
      'schlau_cohen': Rates(20., 4000., 4000., 14., 
-         7., 1., 0.4, 0.4, 16.)
+         7., 1., 0.4, 0.4, 24.)
      }
     rates_key = 'schlau_cohen'
     rates = rates_dict[rates_key]
 
-    file_prefix = "no_ann_q_{}_{}_{:d}_{:3.2f}_{:d}".format(rates_key, lattice_type, 
+    file_prefix = "no_nn_q_{}_{}_{:d}_{:3.2f}_{:d}".format(rates_key, lattice_type, 
             n_iterations, rho_quenchers, n_excitons)
 
-    agg = theoretical_aggregate(r, 2.5*r, lattice_type, n_iter)
+    agg = theoretical_aggregate(r, 0., lattice_type, n_iter)
     loss_times = []
     emissions = []
     for i in range(n_iterations):
         print("iteration {}:".format(i))
-        it = Iteration(agg, rates, i, 
+        it = Iteration(agg, rates, i,
                 rho_quenchers, 0, n_excitons, False)
         print("Loss times:")
         print("annihilations: ",it.loss_times[0])
@@ -402,10 +431,6 @@ if __name__ == "__main__":
         print("q decays: ",it.loss_times[3])
         loss_times.append(it.loss_times)
         emissions.append(it.emissions)
-        print("PQ times:") # don't work yet
-        print(it.time_on_pq)
-        print("Q times:")
-        print(it.time_on_q)
 
     loss_times = np.array(loss_times)
     annihilations = np.transpose(loss_times[:, 0, :])
@@ -425,14 +450,13 @@ if __name__ == "__main__":
     lambda_i = estimate_posterior_mean(l)
     print("Posterior means: ", lambda_i)
     l = np.ravel(loss_times)[np.ravel(loss_times) > 0.]
-    # delta_l = np.array([l[i] - l[i - 1] for i in range(1, len(l))])
-    # print(delta_l)
     tau = np.sum(l) / len(l) 
     print("Total posterior mean: ", tau)
     np.savetxt("out/{}_tau.dat".format(file_prefix), [tau])
     np.savetxt("out/{}_means.dat".format(file_prefix), lambda_i)
     l = np.column_stack(np.array([loss_times[:, i, :].flatten() for i in range(4)]))
     np.savetxt("out/{}_decays.dat".format(file_prefix), l)
+    np.savetxt("out/{}_emissions.dat".format(file_prefix), l)
 
     ax = sns.histplot(data=l, element="step", fill=False)
     # otherwise the legend will just be the array index
@@ -442,9 +466,9 @@ if __name__ == "__main__":
     ax.legend(handles, ["Ann.", "Pool", "PQ", "Q"], title="Decays")
     ax.set_xlabel("Time (ps)")
     plt.axvline(x=tau, ls="--", c='k')
-    plt.savefig("frames/{}_plot.pdf".format(file_prefix))
+    plt.savefig("out/{}_plot.pdf".format(file_prefix))
     plt.close()
 
-    ax = sns.histplot(data=np.ravel(emissions), element="step", binwidth=50., fill=False)
+    ax = sns.histplot(data=np.ravel(emissions), element="step", binwidth=50., fill=False, stat="density")
     ax.set_xlabel("Time (ps)")
     plt.savefig("out/{}_emissions.pdf".format(file_prefix))

@@ -4,12 +4,6 @@ import numpy as np
 from shapefill import ShapeFill
 import cv2
 
-class State:
-    def __init__(self, type, rates, lifetime):
-        self.type = type
-        self.rates = rates
-        self.lifetime = lifetime
-
 def check_neighbours(trimer):
     if not trimer.get_neighbours():
         print("no neighbours!")

@@ -157,7 +157,7 @@ class Iteration():
                     (q, k_tot) = select_process(self.transitions[ind], rand1)
                 else:
                     (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
-                # no annihilation
+                # uncomment next line to turn off annihilation
                 # (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
                 print("q = {}, kp = {}".format(q, self.transitions[ind]),
                         file=self.output)
@@ -359,35 +359,16 @@ def estimate_posterior_mean(loss_times):
         lambda_i.append(l)
     return lambda_i
 
-def poisson(k, lamb):
-    return (lamb**k/factorial(k)) * np.exp(-lamb)
-
-def fit(no_exp, decays, bin_width=100):
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from scipy.optimize import curve_fit
-    bins = np.arange(np.max(decays), step=bin_width)
-    n, bin_edges, patches = plt.hist(decays, bins=bins)
-    bin_centres = 0.5 * (bin_edges[1:] + bin_edges[:-1])
-    if no_exp == 1:
-        def fn(x, lamb):
-            return np.exp(-lamb * x)
-    elif no_exp == 2:
-        def fn(x, lamb1, lamb2):
-            return np.exp(-lamb1 * x) + np.exp(-lamb2 * x)
-    params, cov = curve_fit(fn, bin_centres, n)
-    return params, cov
-
 def lm(no_exp, x, y, rates):
     ''' use lmfit to a mono or biexponential '''
-    exp = ExponentialModel(prefix='exp1_')
+    exp1 = ExponentialModel(prefix='exp1_')
     pars = exp.guess(y, x=x)
-    pars['exp_decay'].set(value=rates.g_pool)
+    pars['exp1_decay'].set(value=rates.g_pool)
     # this should start at the highest count value?
-    pars['exp_amplitude'].set(value=1.)
-    mod = exp
+    pars['exp1_amplitude'].set(value=1.)
+    mod = exp1
     if no_exp == 2:
-        exp2 = GaussianModel(prefix='exp2_')
+        exp2 = ExponentialModel(prefix='exp2_')
         pars.update(exp2.make_params())
         pars['exp2_decay'].set(value=rates.k_ann)
         # not sure what to try as a guess for this
@@ -395,16 +376,16 @@ def lm(no_exp, x, y, rates):
         mod = mod + exp2
 
     init = mod.eval(pars, x=x)
-    out = mod.fit()
-     
+    out = mod.fit(y, pars, x=x)
+    return out
 
 if __name__ == "__main__":
     r = 5.
-    lattice_type = "honeycomb"
+    lattice_type = "hex"
     n_iter = 8 # 434 trimers for honeycomb
     n_iterations = 1000
     rho_quenchers = 0.0
-    n_excitons = 375
+    n_excitons = 500
     rates_dict = {
      'lut_eet': Rates(20., 4000., 4000., 14., 
          7., 1., 20., np.inf, 24.),
@@ -414,7 +395,9 @@ if __name__ == "__main__":
     rates_key = 'schlau_cohen'
     rates = rates_dict[rates_key]
 
-    file_prefix = "no_nn_q_{}_{}_{:d}_{:3.2f}_{:d}".format(rates_key, lattice_type, 
+    path = "out/{}/{}".format(rates_key, lattice_type)
+    os.makedirs(path, exist_ok=True)
+    file_prefix = "{:d}_{:3.2f}_{:d}".format(
             n_iterations, rho_quenchers, n_excitons)
 
     agg = theoretical_aggregate(r, 0., lattice_type, n_iter)
@@ -437,26 +420,29 @@ if __name__ == "__main__":
     pool_decays = np.transpose(loss_times[:, 1, :])
     pq_decays = np.transpose(loss_times[:, 2, :])
     q_decays = np.transpose(loss_times[:, 3, :])
-    print("Annihilations", annihilations)
-    print("Pool decays", pool_decays)
-    print("Pre-quencher decays", pq_decays)
-    print("Quencher decays", q_decays)
+    print("Annihilations", annihilations[annihilations > 0.])
+    print("Pool decays", pool_decays[pool_decays > 0.])
+    print("Pre-quencher decays", pq_decays[pq_decays > 0.])
+    print("Quencher decays", q_decays[q_decays > 0.])
+    # does this work? idk
+    # decays = np.fromiter(d[d > 0.] for d in np.transpose(loss_times[:, i, :]) for i in range(4))
     '''
     NB: i am estimating for each decay mode separately here
     which is probably wrong. tau is just a straight estimation of everything.
     Also need to figure out errors on these!
     '''
-    l = np.stack(np.array([loss_times[:, i, :].flatten() for i in range(4)]))
+    l = np.stack(np.fromiter((loss_times[:, i, :].flatten() for i in range(4))))
+    # l = np.stack(np.array([loss_times[:, i, :].flatten() for i in range(4)]))
     lambda_i = estimate_posterior_mean(l)
     print("Posterior means: ", lambda_i)
     l = np.ravel(loss_times)[np.ravel(loss_times) > 0.]
     tau = np.sum(l) / len(l) 
     print("Total posterior mean: ", tau)
-    np.savetxt("out/{}_tau.dat".format(file_prefix), [tau])
-    np.savetxt("out/{}_means.dat".format(file_prefix), lambda_i)
+    np.savetxt("{}/{}_tau.dat".format(path, file_prefix), [tau])
+    np.savetxt("{}/{}_means.dat".format(path, file_prefix), lambda_i)
     l = np.column_stack(np.array([loss_times[:, i, :].flatten() for i in range(4)]))
-    np.savetxt("out/{}_decays.dat".format(file_prefix), l)
-    np.savetxt("out/{}_emissions.dat".format(file_prefix), l)
+    np.savetxt("{}/{}_decays.dat".format(path, file_prefix), l)
+    np.savetxt("{}/{}_emissions.dat".format(path, file_prefix), l)
 
     ax = sns.histplot(data=l, element="step", fill=False)
     # otherwise the legend will just be the array index
@@ -466,9 +452,9 @@ if __name__ == "__main__":
     ax.legend(handles, ["Ann.", "Pool", "PQ", "Q"], title="Decays")
     ax.set_xlabel("Time (ps)")
     plt.axvline(x=tau, ls="--", c='k')
-    plt.savefig("out/{}_plot.pdf".format(file_prefix))
+    plt.savefig("{}/{}_plot.pdf".format(path, file_prefix))
     plt.close()
 
     ax = sns.histplot(data=np.ravel(emissions), element="step", binwidth=50., fill=False, stat="density")
     ax.set_xlabel("Time (ps)")
-    plt.savefig("out/{}_emissions.pdf".format(file_prefix))
+    plt.savefig("{}/{}_emissions.pdf".format(path, file_prefix))

@@ -346,9 +346,6 @@ def select_process(k_p, rand):
     return (i, k_tot)
 
 def estimate_posterior_mean(loss_times):
-    # needs tweaking - atm it's doing the mean for the 1st one to go,
-    # then the mean for the second one to go, etc.
-    # think about how to fix this!!
     lambda_i = []
     for k_i in loss_times:
         k_i = k_i[k_i > 0.].flatten()
@@ -359,22 +356,33 @@ def estimate_posterior_mean(loss_times):
         lambda_i.append(l)
     return lambda_i
 
+def emission_histogram(emissions, filename):
+    '''
+    plot a histogram of all the emissive decays via matplotlib;
+    return the set of bin values and edges so we can fit them after
+    '''
+    import matplotlib.pyplot as plt
+    num_bins = 100
+    (n, bins, patches)= plt.hist(emissions, num_bins,
+            histtype="step", color='C0')
+    plt.gca().set_ylabel("Counts")
+    plt.gca().set_xlabel("Time (ps)")
+    plt.savefig(filename)
+    plt.close()
+    return n, bins
+
 def lm(no_exp, x, y, rates):
+    from lmfit.models import ExponentialModel
     ''' use lmfit to a mono or biexponential '''
-    exp1 = ExponentialModel(prefix='exp1_')
-    pars = exp.guess(y, x=x)
-    pars['exp1_decay'].set(value=rates.g_pool)
-    # this should start at the highest count value?
-    pars['exp1_amplitude'].set(value=1.)
+    exp1 = ExponentialModel(prefix='exp1')
+    pars = exp1.make_params(exp1decay=1./rates.g_pool,
+                            exp1amplitude=np.max(y))
     mod = exp1
     if no_exp == 2:
-        exp2 = ExponentialModel(prefix='exp2_')
-        pars.update(exp2.make_params())
-        pars['exp2_decay'].set(value=rates.k_ann)
-        # not sure what to try as a guess for this
-        pars['exp2_amplitude'].set(value=1.)
+        exp2 = ExponentialModel(prefix='exp2')
+        pars.update(exp2.make_params(exp2decay=rates.k_ann,
+                                     exp2amplitude=1.))
         mod = mod + exp2
-
     init = mod.eval(pars, x=x)
     out = mod.fit(y, pars, x=x)
     return out
@@ -383,9 +391,9 @@ if __name__ == "__main__":
     r = 5.
     lattice_type = "hex"
     n_iter = 8 # 434 trimers for honeycomb
-    n_iterations = 1000
+    n_iterations = 100
     rho_quenchers = 0.0
-    n_excitons = 500
+    n_excitons = 50
     rates_dict = {
      'lut_eet': Rates(20., 4000., 4000., 14., 
          7., 1., 20., np.inf, 24.),
@@ -416,31 +424,22 @@ if __name__ == "__main__":
         emissions.append(it.emissions)
 
     loss_times = np.array(loss_times)
-    annihilations = np.transpose(loss_times[:, 0, :])
-    pool_decays = np.transpose(loss_times[:, 1, :])
-    pq_decays = np.transpose(loss_times[:, 2, :])
-    q_decays = np.transpose(loss_times[:, 3, :])
-    print("Annihilations", annihilations[annihilations > 0.])
-    print("Pool decays", pool_decays[pool_decays > 0.])
-    print("Pre-quencher decays", pq_decays[pq_decays > 0.])
-    print("Quencher decays", q_decays[q_decays > 0.])
-    # does this work? idk
-    # decays = np.fromiter(d[d > 0.] for d in np.transpose(loss_times[:, i, :]) for i in range(4))
+    decays = np.array([np.transpose(loss_times[:, j, :]) for j in range(4)])
+    print("Decays:", decays[decays > 0.])
     '''
     NB: i am estimating for each decay mode separately here
     which is probably wrong. tau is just a straight estimation of everything.
     Also need to figure out errors on these!
     '''
-    l = np.stack(np.fromiter((loss_times[:, i, :].flatten() for i in range(4))))
-    # l = np.stack(np.array([loss_times[:, i, :].flatten() for i in range(4)]))
+    l = np.stack([loss_times[:, i, :].flatten() for i in range(4)])
     lambda_i = estimate_posterior_mean(l)
     print("Posterior means: ", lambda_i)
-    l = np.ravel(loss_times)[np.ravel(loss_times) > 0.]
-    tau = np.sum(l) / len(l) 
-    print("Total posterior mean: ", tau)
-    np.savetxt("{}/{}_tau.dat".format(path, file_prefix), [tau])
+    tau = np.mean(decays[decays > 0.])
+    sigma_tau = np.std(decays[decays > 0.])
+    print("Total posterior mean, sigma: ", tau, sigma_tau)
+    np.savetxt("{}/{}_tau.dat".format(path, file_prefix), [tau, sigma_tau])
     np.savetxt("{}/{}_means.dat".format(path, file_prefix), lambda_i)
-    l = np.column_stack(np.array([loss_times[:, i, :].flatten() for i in range(4)]))
+    l = np.column_stack([loss_times[:, i, :].flatten() for i in range(4)])
     np.savetxt("{}/{}_decays.dat".format(path, file_prefix), l)
     np.savetxt("{}/{}_emissions.dat".format(path, file_prefix), l)
 
@@ -455,6 +454,36 @@ if __name__ == "__main__":
     plt.savefig("{}/{}_plot.pdf".format(path, file_prefix))
     plt.close()
 
-    ax = sns.histplot(data=np.ravel(emissions), element="step", binwidth=50., fill=False, stat="density")
+    ax = sns.histplot(data=np.ravel(emissions), element="step",
+                      binwidth=50., fill=False, stat="density")
     ax.set_xlabel("Time (ps)")
     plt.savefig("{}/{}_emissions.pdf".format(path, file_prefix))
+    plt.close()
+
+    # matplotlib histogram - output bins and vals for lmfit
+    histvals, histbins = emission_histogram(np.ravel(emissions),
+            "{}/{}_emissions_mpl.pdf".format(path, file_prefix))
+    x = histbins[:-1] + (np.diff(histbins) / 2.)
+    mono_fit = lm(1, x, histvals, rates)
+    print(mono_fit.fit_report())
+    bi_fit = lm(2, x, histvals, rates)
+    print(bi_fit.fit_report())
+    plt.hist(np.ravel(emissions), 200, histtype="step",
+             color='C0', label="hist", log=True)
+    plt.plot(x, mono_fit.best_fit, color='C1', label="mono fit")
+    plt.plot(x, bi_fit.best_fit, color='C2', label="bi fit")
+    plt.legend()
+    plt.savefig("{}/{}_fit.pdf".format(path, file_prefix))
+    plt.close()
+
+    fig = mono_fit.plot(xlabel="Time (ps)", ylabel="Counts")
+    axes = fig.gca()
+    axes.set_yscale('log')
+    plt.savefig("{}/{}_mono.pdf".format(path, file_prefix))
+    plt.close()
+
+    fig = bi_fit.plot(xlabel="Time (ps)", ylabel="Counts")
+    axes = fig.gca()
+    axes.set_yscale('log')
+    plt.savefig("{}/{}_bi.pdf".format(path, file_prefix))
+    plt.close()

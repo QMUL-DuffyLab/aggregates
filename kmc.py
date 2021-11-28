@@ -77,7 +77,6 @@ class Iteration():
         self.kmc_cleanup()
             
     def transition_calc(self):
-        print(self.n_sites)
         self.transitions = [[] for _ in range(self.n_sites)]
         for i in range(self.n_sites):
             t = []
@@ -356,13 +355,12 @@ def estimate_posterior_mean(loss_times):
         lambda_i.append(l)
     return lambda_i
 
-def emission_histogram(emissions, filename):
+def emission_histogram(emissions, filename, num_bins=200):
     '''
     plot a histogram of all the emissive decays via matplotlib;
     return the set of bin values and edges so we can fit them after
     '''
     import matplotlib.pyplot as plt
-    num_bins = 100
     (n, bins, patches)= plt.hist(emissions, num_bins,
             histtype="step", color='C0')
     plt.gca().set_ylabel("Counts")
@@ -380,8 +378,8 @@ def lm(no_exp, x, y, rates):
     mod = exp1
     if no_exp == 2:
         exp2 = ExponentialModel(prefix='exp2')
-        pars.update(exp2.make_params(exp2decay=rates.k_ann,
-                                     exp2amplitude=1.))
+        pars.update(exp2.make_params(exp2decay=1./rates.k_ann,
+                                     exp2amplitude=np.max(y)))
         mod = mod + exp2
     init = mod.eval(pars, x=x)
     out = mod.fit(y, pars, x=x)
@@ -393,7 +391,7 @@ if __name__ == "__main__":
     n_iter = 8 # 434 trimers for honeycomb
     n_iterations = 100
     rho_quenchers = 0.0
-    n_excitons = 50
+    n_excitons = 5
     rates_dict = {
      'lut_eet': Rates(20., 4000., 4000., 14., 
          7., 1., 20., np.inf, 24.),
@@ -412,20 +410,19 @@ if __name__ == "__main__":
     loss_times = []
     emissions = []
     for i in range(n_iterations):
-        print("iteration {}:".format(i))
+        width = os.get_terminal_size().columns - 20
+        print("\rProgress: [{0}{1}] {2}%".format(
+            '█'*int((i + 1) * width/n_iterations),
+            ' '*int(width - ((i + 1) * width/n_iterations)),
+            int((i + 1) * 100 / n_iterations)), end='')
         it = Iteration(agg, rates, i,
                 rho_quenchers, 0, n_excitons, False)
-        print("Loss times:")
-        print("annihilations: ",it.loss_times[0])
-        print("pool decays: ",it.loss_times[1])
-        print("pq decays: ",it.loss_times[2])
-        print("q decays: ",it.loss_times[3])
         loss_times.append(it.loss_times)
         emissions.append(it.emissions)
 
+    print() # newline after progress bar
     loss_times = np.array(loss_times)
     decays = np.array([np.transpose(loss_times[:, j, :]) for j in range(4)])
-    print("Decays:", decays[decays > 0.])
     '''
     NB: i am estimating for each decay mode separately here
     which is probably wrong. tau is just a straight estimation of everything.

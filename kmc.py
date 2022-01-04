@@ -29,7 +29,7 @@ class Rates():
 
 class Iteration():
     def __init__(self, aggregate, rates, seed, rho_quenchers,
-            n_steps, n_excitations, verbose=False, draw_frames=False):
+            n_steps, fluence, verbose=False, draw_frames=False):
         if verbose:
             self.output = sys.stdout
         else:
@@ -37,15 +37,15 @@ class Iteration():
         self.aggregate = aggregate
         self.rates = rates
         self.n_st = n_steps
-        self.n_e = n_excitations
-        self.n_current = self.n_e
         self.rng = np.random.default_rng(seed=seed)
-        self.currently_occupied = np.zeros(self.n_e, dtype=int)
         # + 2 for the pre-quencher and quencher
         self.n_sites = len(self.aggregate.trimers) + 2
         self.n_i = np.zeros(self.n_sites, dtype=np.uint8)
-        self.previous_pool = np.zeros(self.n_e, dtype=int)
         self.quenchers = np.full(len(self.aggregate.trimers), False, dtype=bool)
+        self.kmc_setup(rho_quenchers, fluence)
+        # self.n_e and self.currently_occupied are set in kmc_setup
+        self.n_current = self.n_e
+        self.previous_pool = np.zeros(self.n_e, dtype=int)
         self.t = 0. # probably need to write a proper init function
         self.ti = [0.]
         self.emissions = np.full((self.n_e), np.nan)
@@ -55,7 +55,6 @@ class Iteration():
         # four ways to lose population: annihilation, decay from a
         # chl pool (trimer), decay from pre-quencher, decay from quencher
         self.loss_times = np.full((4, self.n_e), np.nan)
-        self.kmc_setup(rho_quenchers)
         self.transitions = np.array(self.transition_calc())
         if seed == 0:
             self.draw("frames/init_{:03d}.jpg".format(seed))
@@ -103,7 +102,10 @@ class Iteration():
             print(i, self.transitions[i], file=self.output)
         return self.transitions
     
-    def kmc_setup(self, rho):
+    def kmc_setup(self, rho, fluence):
+        '''
+        randomly allocate quenchers based on rho_q
+        '''
         self.n_q = int(len(self.aggregate.trimers) * rho)
         for i in range(self.n_q):
             choice = self.rng.integers(low=0,
@@ -113,12 +115,24 @@ class Iteration():
                     high=len(self.aggregate.trimers))
             self.quenchers[choice] = True
 
-        for i in range(self.n_e):
-            # only generate excitations on the pools, not quenchers
-            choice = self.rng.integers(low=0,
-                high=len(self.aggregate.trimers))
-            self.n_i[choice] += 1
-            self.currently_occupied[i] = choice
+        '''
+        now loop over trimers and excite based on the
+        absorption cross section sigma and the fluence
+        sigma @ 480nm \approx 1.1E-14 - might need changing!
+        '''
+        l = fluence * 1.1E-14
+        print("Average excitations per trimer = {:6.3f}".format(l))
+        self.n_e = 0
+        occupied = []
+        for i in range(len(self.aggregate.trimers)):
+            p = self.rng.poisson(lam=l)
+            self.n_i[i] = p
+            self.n_e += p
+            for k in range(p):
+                occupied.append(i)
+        
+        self.currently_occupied = np.array(occupied)
+        print("Number of excitations = {:d}".format(self.n_e))
 
     def kmc_cleanup(self):
         for i in range(self.n_e):
@@ -389,26 +403,32 @@ if __name__ == "__main__":
     r = 5.
     lattice_type = "hex"
     n_iter = 8 # 434 trimers for honeycomb
-    n_iterations = 100
+    n_iterations = 2
     rho_quenchers = 0.0
-    n_excitons = 5
+    fluence = 9.48E14 # photons per pulse per unit area
     rates_dict = {
      'lut_eet': Rates(20., 4000., 4000., 14., 
-         7., 1., 20., np.inf, 24.),
+         7., 1., 20., np.inf, 24. * 24.),
      'schlau_cohen': Rates(20., 4000., 4000., 14., 
-         7., 1., 0.4, 0.4, 24.)
+         7., 1., 0.4, 0.4, 24. * 24.)
      }
-    rates_key = 'schlau_cohen'
+    rates_key = 'lut_eet'
     rates = rates_dict[rates_key]
 
     path = "out/{}/{}".format(rates_key, lattice_type)
     os.makedirs(path, exist_ok=True)
-    file_prefix = "{:d}_{:3.2f}_{:d}".format(
-            n_iterations, rho_quenchers, n_excitons)
+    file_prefix = "{:d}_{:3.2f}_{:4.2e}".format(
+            n_iterations, rho_quenchers, fluence)
 
     agg = theoretical_aggregate(r, 0., lattice_type, n_iter)
-    loss_times = []
+    annihilations = []
+    pool_decays = []
+    pq_decays = []
+    q_decays = []
     emissions = []
+    n_es = []
+    emission_means = []
+    emission_stddevs = []
     for i in range(n_iterations):
         width = os.get_terminal_size().columns - 20
         print("\rProgress: [{0}{1}] {2}%".format(
@@ -416,21 +436,23 @@ if __name__ == "__main__":
             ' '*int(width - ((i + 1) * width/n_iterations)),
             int((i + 1) * 100 / n_iterations)), end='')
         it = Iteration(agg, rates, i,
-                rho_quenchers, 0, n_excitons, False)
-        loss_times.append(it.loss_times)
+                rho_quenchers, 0, fluence, False)
+        n_es.append(it.n_e)
+        emission_means.append(np.mean(it.emissions[it.emissions > 0.]))
+        emission_stddevs.append(np.std(it.emissions[it.emissions > 0.]))
+        annihilations.append(it.loss_times[0])
+        pool_decays.append(it.loss_times[1])
+        pq_decays.append(it.loss_times[2])
+        q_decays.append(it.loss_times[3])
         emissions.append(it.emissions)
 
     print() # newline after progress bar
-    loss_times = np.array(loss_times)
-    decays = np.array([np.transpose(loss_times[:, j, :]) for j in range(4)])
     '''
     NB: i am estimating for each decay mode separately here
     which is probably wrong. tau is just a straight estimation of everything.
     Also need to figure out errors on these!
     '''
-    l = np.stack([loss_times[:, i, :].flatten() for i in range(4)])
-    lambda_i = estimate_posterior_mean(l)
-    print("Posterior means: ", lambda_i)
+    decays = np.concatenate((annihilations, pool_decays, pq_decays, q_decays))
     tau = np.mean(decays[decays > 0.])
     sigma_tau = np.std(decays[decays > 0.])
     print("Total posterior mean, sigma: ", tau, sigma_tau)

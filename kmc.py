@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import pandas as pd
 from trimer import Aggregate, theoretical_aggregate
 
 class Model():
@@ -120,7 +121,6 @@ class Iteration():
         sigma @ 480nm \approx 1.1E-14 - might need changing!
         '''
         l = fluence * 1.1E-14
-        print("Average excitations per trimer = {:6.3f}".format(l))
         self.n_e = 0
         occupied = []
         for i in range(len(self.aggregate.trimers)):
@@ -131,7 +131,7 @@ class Iteration():
                 occupied.append(i)
         
         self.currently_occupied = np.array(occupied)
-        print("Number of excitations = {:d}".format(self.n_e))
+        # print("ρ_exc = {:6.3f}; n_exc = {:d}".format(l, self.n_e))
 
     def kmc_cleanup(self):
         for i in range(self.n_e):
@@ -383,16 +383,16 @@ def emission_histogram(emissions, filename, num_bins=200):
     plt.close()
     return n, bins
 
-def lm(no_exp, x, y, rates):
+def lm(no_exp, x, y, model):
     from lmfit.models import ExponentialModel
     ''' use lmfit to a mono or biexponential '''
     exp1 = ExponentialModel(prefix='exp1')
-    pars = exp1.make_params(exp1decay=1./rates.g_pool,
+    pars = exp1.make_params(exp1decay=1./model.g_pool,
                             exp1amplitude=np.max(y))
     mod = exp1
     if no_exp == 2:
         exp2 = ExponentialModel(prefix='exp2')
-        pars.update(exp2.make_params(exp2decay=1./rates.k_ann,
+        pars.update(exp2.make_params(exp2decay=1./model.k_ann,
                                      exp2amplitude=np.max(y)))
         mod = mod + exp2
     init = mod.eval(pars, x=x)
@@ -408,7 +408,7 @@ if __name__ == "__main__":
     # fluences given here as photons per pulse per unit area - 485nm
     fluences = [3.03E13, 6.24E13, 1.31E14, 1.9E14, 3.22E14, 6.12E14, 9.48E14]
     # lazy - make a different main file to loop over models and fluences
-    fluence = fluences[2] # photons per pulse per unit area
+    fluence = fluences[1] # photons per pulse per unit area
     # annihilation, pool decay, pq decay, q decay
     model_dict = {
      'lut_eet': Model(20., 4000., 4000., 14., 
@@ -435,14 +435,11 @@ if __name__ == "__main__":
     decay_file     = open(decay_filename, mode='w')
     emissions_file = open(emission_filename, mode='w')
     for i in range(n_iterations):
-        # width = os.get_terminal_size().columns - 20
-        # print("\rProgress: [{0}{1}] {2}%".format(
-        #     '█'*int((i + 1) * width/n_iterations),
-        #     ' '*int(width - ((i + 1) * width/n_iterations)),
-        #     int((i + 1) * 100 / n_iterations)), end='')
+        verbose = False
+        width = os.get_terminal_size().columns - 20
         emissions = []
         it = Iteration(agg, model, i,
-                rho_quenchers, 0, fluence, verbose=False)
+                rho_quenchers, 0, fluence, verbose=verbose)
         n_es.append(it.n_e)
         for k in range(it.n_e):
             print("{:1.5e} {:1d}".format(it.loss_times[k], it.decay_type[k]), 
@@ -454,25 +451,40 @@ if __name__ == "__main__":
         stddevs.append(np.std(it.loss_times))
         emission_means.append(np.mean(emissions))
         emission_stddevs.append(np.std(emissions))
-        print("=== LOSS TIMES ===")
-        print(it.loss_times)
-        print("=== EMISSIONS ===")
-        print(emissions)
-        print("=== EMISSION μ, σ ===")
-        print(emission_means[-1], emission_stddevs[-1])
+        if(verbose):
+            print("Iteration {:d}".format(i))
+            print("=== μ, σ ===")
+            print(means[-1], stddevs[-1])
+            print("=== EMISSION μ, σ ===")
+            print(emission_means[-1], emission_stddevs[-1])
+        else:
+            print("\rProgress: [{0}{1}] {2}%".format(
+                '█'*int((i + 1) * width/n_iterations),
+                ' '*int(width - ((i + 1) * width/n_iterations)),
+                int((i + 1) * 100 / n_iterations)), end='')
 
     print() # newline after progress bar
     decay_file.close()
     emissions_file.close()
     '''
-    NB: i am estimating for each decay mode separately here
-    which is probably wrong. tau is just a straight estimation of everything.
-    Also need to figure out errors on these!
+    tau is just a straight estimation of everything
+    mean of means and mean of emissive means reported separately
+    statistics of these????? are they valid things to report???
     '''
     decays = np.loadtxt(decay_filename)
+    emissions = np.loadtxt(emission_filename)
     tau = np.mean(decays[:, 0])
     sigma_tau = np.std(decays[:, 0])
-    print("Total posterior mean, sigma: ", tau, sigma_tau)
+    print("Total μ, σ: ", tau, sigma_tau)
+    print("μ, σ of means: ", np.mean(means),
+            np.std(means))
+    print("μ, σ of emission means: ", np.mean(emission_means),
+            np.std(emission_means))
+    print("μ, σ of excitation numbers: ", np.mean(n_es),
+            np.std(n_es))
+    print("Average fraction of excited trimers ρ_exc: ",
+            np.mean(n_es) / len(it.aggregate.trimers))
+
     np.savetxt("{}/{}_total_mean_std.dat".format(path, file_prefix),
             [tau, sigma_tau])
     np.savetxt("{}/{}_n_es.dat".format(path, file_prefix), n_es)
@@ -484,23 +496,21 @@ if __name__ == "__main__":
         file_prefix), emission_stddevs)
 
     '''
-    nb: this doesn't work as is - need to use the full decays file
-    with the first element in each line as the time and the second
-    as the index
+    NB: latex will work in column names and captions (e.g.
+    in typedict below, if it were needed). just have e.g. 0: r'$ \sigma $',
     '''
-    ax = sns.histplot(data=decays, element="step", fill=False)
-    # otherwise the legend will just be the array index
-    legend = ax.get_legend()
-    handles = legend.legendHandles
-    legend.remove()
-    ax.legend(handles, ["Ann.", "Pool", "PQ", "Q"], title="Decays")
-    ax.set_xlabel("Time (ps)")
+    decay_pd = pd.DataFrame(decays, columns=["Time (ps)", "Decay type"])
+    # typedict = {"Ann": 0., "Pool": 1., "PQ":, 2., "Q": 3.}
+    typedict = {0.: "Ann.", 1.: "Pool", 2.: "PQ", 3: "Q"}
+    decay_pd = decay_pd.replace({"Decay type": typedict})
+    ax = sns.histplot(data=decay_pd, x="Time (ps)", hue="Decay type",
+            element="step", fill=False)
     plt.axvline(x=tau, ls="--", c='k')
     plt.savefig("{}/{}_plot.pdf".format(path, file_prefix))
     plt.close()
 
     ax = sns.histplot(data=np.ravel(emissions), element="step",
-                      binwidth=50., fill=False, stat="density")
+                      binwidth=50., fill=False)
     ax.set_xlabel("Time (ps)")
     plt.savefig("{}/{}_emissions.pdf".format(path, file_prefix))
     plt.close()

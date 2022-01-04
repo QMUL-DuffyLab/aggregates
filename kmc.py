@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from trimer import Aggregate, theoretical_aggregate
 
-class Rates():
+class Model():
     '''
     take a set of rates and normalise them to the hopping rate:
     e.g. a fast pre-quencher to quencher rate of 400fs^{-1}
@@ -15,27 +15,29 @@ class Rates():
     Give as equivalent times in ps!
     '''
     def __init__(self, tau_hop, tau_pool, tau_pq, tau_q,
-            t_po_pq, t_pq_po, t_pq_q, t_q_pq, t_annihilation):
-        self.tau_hop = tau_hop
-        self.hop     = 1. / tau_hop
-        self.g_pool  = 1. / tau_pool
-        self.g_pq    = 1. / tau_pq
-        self.g_q     = 1. / tau_q
-        self.k_po_pq = 1. / t_po_pq
-        self.k_pq_po = 1. / t_pq_po
-        self.k_pq_q  = 1. / t_pq_q
-        self.k_q_pq  = 1. / t_q_pq
-        self.k_ann   = 1. / t_annihilation
+            t_po_pq, t_pq_po, t_pq_q, t_q_pq, t_annihilation,
+            emissive):
+        self.tau_hop  = tau_hop
+        self.hop      = 1. / tau_hop
+        self.g_pool   = 1. / tau_pool
+        self.g_pq     = 1. / tau_pq
+        self.g_q      = 1. / tau_q
+        self.k_po_pq  = 1. / t_po_pq
+        self.k_pq_po  = 1. / t_pq_po
+        self.k_pq_q   = 1. / t_pq_q
+        self.k_q_pq   = 1. / t_q_pq
+        self.k_ann    = 1. / t_annihilation
+        self.emissive = emissive
 
 class Iteration():
-    def __init__(self, aggregate, rates, seed, rho_quenchers,
+    def __init__(self, aggregate, model, seed, rho_quenchers,
             n_steps, fluence, verbose=False, draw_frames=False):
         if verbose:
             self.output = sys.stdout
         else:
             self.output = open(os.devnull, "w")
         self.aggregate = aggregate
-        self.rates = rates
+        self.model = model
         self.n_st = n_steps
         self.rng = np.random.default_rng(seed=seed)
         # + 2 for the pre-quencher and quencher
@@ -48,13 +50,10 @@ class Iteration():
         self.previous_pool = np.zeros(self.n_e, dtype=int)
         self.t = 0. # probably need to write a proper init function
         self.ti = [0.]
-        self.emissions = np.full((self.n_e), np.nan)
-        # keep track of time spent on pre-quencher and quencher?
-        self.time_on_pq = np.zeros(self.n_e, dtype=float)
-        self.time_on_q = np.zeros(self.n_e, dtype=float)
+        self.loss_times = np.full((self.n_e), np.nan)
         # four ways to lose population: annihilation, decay from a
         # chl pool (trimer), decay from pre-quencher, decay from quencher
-        self.loss_times = np.full((4, self.n_e), np.nan)
+        self.decay_type = np.full((self.n_e), -1, dtype=int)
         self.transitions = np.array(self.transition_calc())
         if seed == 0:
             self.draw("frames/init_{:03d}.jpg".format(seed))
@@ -82,22 +81,22 @@ class Iteration():
             if i < self.n_sites - 2:
                 # trimer (pool)
                 for j in range(len(self.aggregate.trimers[i].get_neighbours())):
-                    t.append(rates.hop)
+                    t.append(model.hop)
                 if self.quenchers[i]:
-                    t.append(rates.k_po_pq)
+                    t.append(model.k_po_pq)
                 else:
                     t.append(0.)
-                t.append(rates.g_pool)
-                t.append(rates.k_ann)
+                t.append(model.g_pool)
+                t.append(model.k_ann)
             elif i == self.n_sites - 2:
                 # pre-quencher
-                t.append(rates.k_pq_po)
-                t.append(rates.k_pq_q)
-                t.append(rates.g_pq)
+                t.append(model.k_pq_po)
+                t.append(model.k_pq_q)
+                t.append(model.g_pq)
             elif i == self.n_sites - 1:
                 # quencher
-                t.append(rates.k_q_pq)
-                t.append(rates.g_q)
+                t.append(model.k_q_pq)
+                t.append(model.g_q)
             self.transitions[i] = np.array(t)
             print(i, self.transitions[i], file=self.output)
         return self.transitions
@@ -270,16 +269,17 @@ class Iteration():
             # i think this is correct???? need to figure out
             self.t -= 1./ (k_tot) * np.log(rand2)
             self.ti.append(self.t)
-            if pop_loss[1] or pop_loss[2]:
-                # emissive decays
-                # print("EMISSION AT T = {:6.3e}".format(self.t))
-                self.emissions[i] = self.t
             if any(pop_loss):
                 # add this time to the relevant stat
                 # we only do one move at a time, so only one of pop_loss
                 # can be true at any one time; hence it's safe to do [0][0]
                 # self.loss_times[np.nonzero(pop_loss)[0][0]].append(self.t)
-                self.loss_times[np.nonzero(pop_loss)[0][0]][self.n_current] = self.t
+                dt = np.nonzero(pop_loss)[0][0]
+                print("dt = {}".format(dt), file=self.output)
+                self.loss_times[self.n_current] = self.t
+                self.decay_type[self.n_current] = dt
+                # if self.model.emissive[dt] is True:
+                #     self.emissions[i] = self.t
                 # zero the time to get time between decays!
                 self.t = 0.
         return
@@ -403,66 +403,92 @@ if __name__ == "__main__":
     r = 5.
     lattice_type = "hex"
     n_iter = 8 # 434 trimers for honeycomb
-    n_iterations = 2
+    n_iterations = 1000
     rho_quenchers = 0.0
-    fluence = 9.48E14 # photons per pulse per unit area
-    rates_dict = {
-     'lut_eet': Rates(20., 4000., 4000., 14., 
-         7., 1., 20., np.inf, 24. * 24.),
-     'schlau_cohen': Rates(20., 4000., 4000., 14., 
-         7., 1., 0.4, 0.4, 24. * 24.)
+    # fluences given here as photons per pulse per unit area - 485nm
+    fluences = [3.03E13, 6.24E13, 1.31E14, 1.9E14, 3.22E14, 6.12E14, 9.48E14]
+    # lazy - make a different main file to loop over models and fluences
+    fluence = fluences[2] # photons per pulse per unit area
+    # annihilation, pool decay, pq decay, q decay
+    model_dict = {
+     'lut_eet': Model(20., 4000., 4000., 14., 
+         7., 1., 20., np.inf, 24. * 24., [False, True, True, False]),
+     'schlau_cohen': Model(20., 4000., 4000., 14., 
+         7., 1., 0.4, 0.4, 24. * 24., [False, True, True, False])
      }
-    rates_key = 'lut_eet'
-    rates = rates_dict[rates_key]
+    model_key = 'lut_eet'
+    model = model_dict[model_key]
 
-    path = "out/{}/{}".format(rates_key, lattice_type)
+    path = "out/{}/{}".format(model_key, lattice_type)
     os.makedirs(path, exist_ok=True)
     file_prefix = "{:d}_{:3.2f}_{:4.2e}".format(
             n_iterations, rho_quenchers, fluence)
+    decay_filename = "{}/{}_decays.dat".format(path, file_prefix)
+    emission_filename = "{}/{}_emissions.dat".format(path, file_prefix)
 
     agg = theoretical_aggregate(r, 0., lattice_type, n_iter)
-    annihilations = []
-    pool_decays = []
-    pq_decays = []
-    q_decays = []
-    emissions = []
     n_es = []
+    means = []
+    stddevs = []
     emission_means = []
     emission_stddevs = []
+    decay_file     = open(decay_filename, mode='w')
+    emissions_file = open(emission_filename, mode='w')
     for i in range(n_iterations):
-        width = os.get_terminal_size().columns - 20
-        print("\rProgress: [{0}{1}] {2}%".format(
-            '█'*int((i + 1) * width/n_iterations),
-            ' '*int(width - ((i + 1) * width/n_iterations)),
-            int((i + 1) * 100 / n_iterations)), end='')
-        it = Iteration(agg, rates, i,
-                rho_quenchers, 0, fluence, False)
+        # width = os.get_terminal_size().columns - 20
+        # print("\rProgress: [{0}{1}] {2}%".format(
+        #     '█'*int((i + 1) * width/n_iterations),
+        #     ' '*int(width - ((i + 1) * width/n_iterations)),
+        #     int((i + 1) * 100 / n_iterations)), end='')
+        emissions = []
+        it = Iteration(agg, model, i,
+                rho_quenchers, 0, fluence, verbose=False)
         n_es.append(it.n_e)
-        emission_means.append(np.mean(it.emissions[it.emissions > 0.]))
-        emission_stddevs.append(np.std(it.emissions[it.emissions > 0.]))
-        annihilations.append(it.loss_times[0])
-        pool_decays.append(it.loss_times[1])
-        pq_decays.append(it.loss_times[2])
-        q_decays.append(it.loss_times[3])
-        emissions.append(it.emissions)
+        for k in range(it.n_e):
+            print("{:1.5e} {:1d}".format(it.loss_times[k], it.decay_type[k]), 
+                    file=decay_file) 
+            if model.emissive[it.decay_type[k]] is True:
+                print("{:1.5e}".format(it.loss_times[k]), file=emissions_file)
+                emissions.append(it.loss_times[k])
+        means.append(np.mean(it.loss_times))
+        stddevs.append(np.std(it.loss_times))
+        emission_means.append(np.mean(emissions))
+        emission_stddevs.append(np.std(emissions))
+        print("=== LOSS TIMES ===")
+        print(it.loss_times)
+        print("=== EMISSIONS ===")
+        print(emissions)
+        print("=== EMISSION μ, σ ===")
+        print(emission_means[-1], emission_stddevs[-1])
 
     print() # newline after progress bar
+    decay_file.close()
+    emissions_file.close()
     '''
     NB: i am estimating for each decay mode separately here
     which is probably wrong. tau is just a straight estimation of everything.
     Also need to figure out errors on these!
     '''
-    decays = np.concatenate((annihilations, pool_decays, pq_decays, q_decays))
-    tau = np.mean(decays[decays > 0.])
-    sigma_tau = np.std(decays[decays > 0.])
+    decays = np.loadtxt(decay_filename)
+    tau = np.mean(decays[:, 0])
+    sigma_tau = np.std(decays[:, 0])
     print("Total posterior mean, sigma: ", tau, sigma_tau)
-    np.savetxt("{}/{}_tau.dat".format(path, file_prefix), [tau, sigma_tau])
-    np.savetxt("{}/{}_means.dat".format(path, file_prefix), lambda_i)
-    l = np.column_stack([loss_times[:, i, :].flatten() for i in range(4)])
-    np.savetxt("{}/{}_decays.dat".format(path, file_prefix), l)
-    np.savetxt("{}/{}_emissions.dat".format(path, file_prefix), l)
+    np.savetxt("{}/{}_total_mean_std.dat".format(path, file_prefix),
+            [tau, sigma_tau])
+    np.savetxt("{}/{}_n_es.dat".format(path, file_prefix), n_es)
+    np.savetxt("{}/{}_means.dat".format(path, file_prefix), means)
+    np.savetxt("{}/{}_stddevs.dat".format(path, file_prefix), stddevs)
+    np.savetxt("{}/{}_emission_means.dat".format(path, 
+        file_prefix), emission_means)
+    np.savetxt("{}/{}_emission_stddevs.dat".format(path, 
+        file_prefix), emission_stddevs)
 
-    ax = sns.histplot(data=l, element="step", fill=False)
+    '''
+    nb: this doesn't work as is - need to use the full decays file
+    with the first element in each line as the time and the second
+    as the index
+    '''
+    ax = sns.histplot(data=decays, element="step", fill=False)
     # otherwise the legend will just be the array index
     legend = ax.get_legend()
     handles = legend.legendHandles
@@ -483,9 +509,9 @@ if __name__ == "__main__":
     histvals, histbins = emission_histogram(np.ravel(emissions),
             "{}/{}_emissions_mpl.pdf".format(path, file_prefix))
     x = histbins[:-1] + (np.diff(histbins) / 2.)
-    mono_fit = lm(1, x, histvals, rates)
+    mono_fit = lm(1, x, histvals, model)
     print(mono_fit.fit_report())
-    bi_fit = lm(2, x, histvals, rates)
+    bi_fit = lm(2, x, histvals, model)
     print(bi_fit.fit_report())
     plt.hist(np.ravel(emissions), 200, histtype="step",
              color='C0', label="hist", log=True)

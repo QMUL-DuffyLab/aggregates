@@ -398,7 +398,7 @@ def lm(no_exp, x, y, model):
     init = mod.eval(pars, x=x)
     out = mod.fit(y, pars, x=x)
     return out
-
+    
 if __name__ == "__main__":
     r = 5.
     lattice_type = "hex"
@@ -406,139 +406,140 @@ if __name__ == "__main__":
     n_iterations = 1000
     rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
-    fluences = [3.03E13, 6.24E13, 1.31E14, 1.9E14, 3.22E14, 6.12E14, 9.48E14]
+    fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
+            1.9E14, 3.22E14, 6.12E14, 9.48E14]
     # lazy - make a different main file to loop over models and fluences
-    fluence = fluences[1] # photons per pulse per unit area
     # annihilation, pool decay, pq decay, q decay
     model_dict = {
-     'lut_eet': Model(20., 4000., 4000., 14., 
-         7., 1., 20., np.inf, 24. * 24., [False, True, True, False]),
-     'schlau_cohen': Model(20., 4000., 4000., 14., 
-         7., 1., 0.4, 0.4, 24. * 24., [False, True, True, False])
+     'lut_eet': Model(20., 3600., 3600., 14., 
+         7., 1., 20., np.inf, 24. * 9., [False, True, True, False]),
+     'schlau_cohen': Model(20., 3600., 3600., 14., 
+         7., 1., 0.4, 0.4, 24. * 9., [False, True, True, False])
      }
     model_key = 'lut_eet'
     model = model_dict[model_key]
 
-    path = "out/{}/{}".format(model_key, lattice_type)
-    os.makedirs(path, exist_ok=True)
-    file_prefix = "{:d}_{:3.2f}_{:4.2e}".format(
-            n_iterations, rho_quenchers, fluence)
-    decay_filename = "{}/{}_decays.dat".format(path, file_prefix)
-    emission_filename = "{}/{}_emissions.dat".format(path, file_prefix)
+    for fluence in fluences:
+        path = "out/{}/{}".format(model_key, lattice_type)
+        os.makedirs(path, exist_ok=True)
+        file_prefix = "{:d}_{:3.2f}_{:4.2e}".format(
+                n_iterations, rho_quenchers, fluence)
+        decay_filename = "{}/{}_decays.dat".format(path, file_prefix)
+        emission_filename = "{}/{}_emissions.dat".format(path, file_prefix)
 
-    agg = theoretical_aggregate(r, 0., lattice_type, n_iter)
-    n_es = []
-    means = []
-    stddevs = []
-    emission_means = []
-    emission_stddevs = []
-    decay_file     = open(decay_filename, mode='w')
-    emissions_file = open(emission_filename, mode='w')
-    for i in range(n_iterations):
-        verbose = False
-        width = os.get_terminal_size().columns - 20
-        emissions = []
-        it = Iteration(agg, model, i,
-                rho_quenchers, 0, fluence, verbose=verbose)
-        n_es.append(it.n_e)
-        for k in range(it.n_e):
-            print("{:1.5e} {:1d}".format(it.loss_times[k], it.decay_type[k]), 
-                    file=decay_file) 
-            if model.emissive[it.decay_type[k]] is True:
-                print("{:1.5e}".format(it.loss_times[k]), file=emissions_file)
-                emissions.append(it.loss_times[k])
-        means.append(np.mean(it.loss_times))
-        stddevs.append(np.std(it.loss_times))
-        emission_means.append(np.mean(emissions))
-        emission_stddevs.append(np.std(emissions))
-        if(verbose):
-            print("Iteration {:d}".format(i))
-            print("=== μ, σ ===")
-            print(means[-1], stddevs[-1])
-            print("=== EMISSION μ, σ ===")
-            print(emission_means[-1], emission_stddevs[-1])
-        else:
-            print("\rProgress: [{0}{1}] {2}%".format(
-                '█'*int((i + 1) * width/n_iterations),
-                ' '*int(width - ((i + 1) * width/n_iterations)),
-                int((i + 1) * 100 / n_iterations)), end='')
+        agg = theoretical_aggregate(r, 0., lattice_type, n_iter)
+        n_es = []
+        means = []
+        stddevs = []
+        emission_means = []
+        emission_stddevs = []
+        decay_file     = open(decay_filename, mode='w')
+        emissions_file = open(emission_filename, mode='w')
+        for i in range(n_iterations):
+            verbose = False
+            width = os.get_terminal_size().columns - 20
+            emissions = []
+            it = Iteration(agg, model, i,
+                    rho_quenchers, 0, fluence, verbose=verbose)
+            n_es.append(it.n_e)
+            for k in range(it.n_e):
+                print("{:1.5e} {:1d}".format(it.loss_times[k], it.decay_type[k]), 
+                        file=decay_file) 
+                if model.emissive[it.decay_type[k]] is True:
+                    print("{:1.5e}".format(it.loss_times[k]), file=emissions_file)
+                    emissions.append(it.loss_times[k])
+            means.append(np.mean(it.loss_times))
+            stddevs.append(np.std(it.loss_times))
+            emission_means.append(np.mean(emissions))
+            emission_stddevs.append(np.std(emissions))
+            if(verbose):
+                print("Iteration {:d}".format(i))
+                print("=== μ, σ ===")
+                print(means[-1], stddevs[-1])
+                print("=== EMISSION μ, σ ===")
+                print(emission_means[-1], emission_stddevs[-1])
+            else:
+                print("\rProgress: [{0}{1}] {2}%".format(
+                    '█'*int((i + 1) * width/n_iterations),
+                    ' '*int(width - ((i + 1) * width/n_iterations)),
+                    int((i + 1) * 100 / n_iterations)), end='')
 
-    print() # newline after progress bar
-    decay_file.close()
-    emissions_file.close()
-    '''
-    tau is just a straight estimation of everything
-    mean of means and mean of emissive means reported separately
-    statistics of these????? are they valid things to report???
-    '''
-    decays = np.loadtxt(decay_filename)
-    emissions = np.loadtxt(emission_filename)
-    tau = np.mean(decays[:, 0])
-    sigma_tau = np.std(decays[:, 0])
-    print("Total μ, σ: ", tau, sigma_tau)
-    print("μ, σ of means: ", np.mean(means),
-            np.std(means))
-    print("μ, σ of emission means: ", np.mean(emission_means),
-            np.std(emission_means))
-    print("μ, σ of excitation numbers: ", np.mean(n_es),
-            np.std(n_es))
-    print("Average fraction of excited trimers ρ_exc: ",
-            np.mean(n_es) / len(it.aggregate.trimers))
+        print() # newline after progress bar
+        decay_file.close()
+        emissions_file.close()
+        '''
+        tau is just a straight estimation of everything
+        mean of means and mean of emissive means reported separately
+        statistics of these????? are they valid things to report???
+        '''
+        decays = np.loadtxt(decay_filename)
+        emissions = np.loadtxt(emission_filename)
+        tau = np.mean(decays[:, 0])
+        sigma_tau = np.std(decays[:, 0])
+        print("Total μ, σ: ", tau, sigma_tau)
+        print("μ, σ of means: ", np.mean(means),
+                np.std(means))
+        print("μ, σ of emission means: ", np.mean(emission_means),
+                np.std(emission_means))
+        print("μ, σ of excitation numbers: ", np.mean(n_es),
+                np.std(n_es))
+        print("Average fraction of excited trimers ρ_exc: ",
+                np.mean(n_es) / len(it.aggregate.trimers))
 
-    np.savetxt("{}/{}_total_mean_std.dat".format(path, file_prefix),
-            [tau, sigma_tau])
-    np.savetxt("{}/{}_n_es.dat".format(path, file_prefix), n_es)
-    np.savetxt("{}/{}_means.dat".format(path, file_prefix), means)
-    np.savetxt("{}/{}_stddevs.dat".format(path, file_prefix), stddevs)
-    np.savetxt("{}/{}_emission_means.dat".format(path, 
-        file_prefix), emission_means)
-    np.savetxt("{}/{}_emission_stddevs.dat".format(path, 
-        file_prefix), emission_stddevs)
+        np.savetxt("{}/{}_total_mean_std.dat".format(path, file_prefix),
+                [tau, sigma_tau])
+        np.savetxt("{}/{}_n_es.dat".format(path, file_prefix), n_es)
+        np.savetxt("{}/{}_means.dat".format(path, file_prefix), means)
+        np.savetxt("{}/{}_stddevs.dat".format(path, file_prefix), stddevs)
+        np.savetxt("{}/{}_emission_means.dat".format(path, 
+            file_prefix), emission_means)
+        np.savetxt("{}/{}_emission_stddevs.dat".format(path, 
+            file_prefix), emission_stddevs)
 
-    '''
-    NB: latex will work in column names and captions (e.g.
-    in typedict below, if it were needed). just have e.g. 0: r'$ \sigma $',
-    '''
-    decay_pd = pd.DataFrame(decays, columns=["Time (ps)", "Decay type"])
-    # typedict = {"Ann": 0., "Pool": 1., "PQ":, 2., "Q": 3.}
-    typedict = {0.: "Ann.", 1.: "Pool", 2.: "PQ", 3: "Q"}
-    decay_pd = decay_pd.replace({"Decay type": typedict})
-    ax = sns.histplot(data=decay_pd, x="Time (ps)", hue="Decay type",
-            element="step", fill=False)
-    plt.axvline(x=tau, ls="--", c='k')
-    plt.savefig("{}/{}_plot.pdf".format(path, file_prefix))
-    plt.close()
+        '''
+        NB: latex will work in column names and captions (e.g.
+        in typedict below, if it were needed). just have e.g. 0: r'$ \sigma $',
+        '''
+        decay_pd = pd.DataFrame(decays, columns=["Time (ps)", "Decay type"])
+        # typedict = {"Ann": 0., "Pool": 1., "PQ":, 2., "Q": 3.}
+        typedict = {0.: "Ann.", 1.: "Pool", 2.: "PQ", 3: "Q"}
+        decay_pd = decay_pd.replace({"Decay type": typedict})
+        ax = sns.histplot(data=decay_pd, x="Time (ps)", hue="Decay type",
+                element="step", fill=False)
+        plt.axvline(x=tau, ls="--", c='k')
+        plt.savefig("{}/{}_plot.pdf".format(path, file_prefix))
+        plt.close()
 
-    ax = sns.histplot(data=np.ravel(emissions), element="step",
-                      binwidth=50., fill=False)
-    ax.set_xlabel("Time (ps)")
-    plt.savefig("{}/{}_emissions.pdf".format(path, file_prefix))
-    plt.close()
+        ax = sns.histplot(data=np.ravel(emissions), element="step",
+                          binwidth=50., fill=False)
+        ax.set_xlabel("Time (ps)")
+        plt.savefig("{}/{}_emissions.pdf".format(path, file_prefix))
+        plt.close()
 
-    # matplotlib histogram - output bins and vals for lmfit
-    histvals, histbins = emission_histogram(np.ravel(emissions),
-            "{}/{}_emissions_mpl.pdf".format(path, file_prefix))
-    x = histbins[:-1] + (np.diff(histbins) / 2.)
-    mono_fit = lm(1, x, histvals, model)
-    print(mono_fit.fit_report())
-    bi_fit = lm(2, x, histvals, model)
-    print(bi_fit.fit_report())
-    plt.hist(np.ravel(emissions), 200, histtype="step",
-             color='C0', label="hist", log=True)
-    plt.plot(x, mono_fit.best_fit, color='C1', label="mono fit")
-    plt.plot(x, bi_fit.best_fit, color='C2', label="bi fit")
-    plt.legend()
-    plt.savefig("{}/{}_fit.pdf".format(path, file_prefix))
-    plt.close()
+        # matplotlib histogram - output bins and vals for lmfit
+        histvals, histbins = emission_histogram(np.ravel(emissions),
+                "{}/{}_emissions_mpl.pdf".format(path, file_prefix))
+        x = histbins[:-1] + (np.diff(histbins) / 2.)
+        mono_fit = lm(1, x, histvals, model)
+        print(mono_fit.fit_report())
+        bi_fit = lm(2, x, histvals, model)
+        print(bi_fit.fit_report())
+        plt.hist(np.ravel(emissions), 200, histtype="step",
+                 color='C0', label="hist", log=True)
+        plt.plot(x, mono_fit.best_fit, color='C1', label="mono fit")
+        plt.plot(x, bi_fit.best_fit, color='C2', label="bi fit")
+        plt.legend()
+        plt.savefig("{}/{}_fit.pdf".format(path, file_prefix))
+        plt.close()
 
-    fig = mono_fit.plot(xlabel="Time (ps)", ylabel="Counts")
-    axes = fig.gca()
-    axes.set_yscale('log')
-    plt.savefig("{}/{}_mono.pdf".format(path, file_prefix))
-    plt.close()
+        fig = mono_fit.plot(xlabel="Time (ps)", ylabel="Counts")
+        axes = fig.gca()
+        axes.set_yscale('log')
+        plt.savefig("{}/{}_mono.pdf".format(path, file_prefix))
+        plt.close()
 
-    fig = bi_fit.plot(xlabel="Time (ps)", ylabel="Counts")
-    axes = fig.gca()
-    axes.set_yscale('log')
-    plt.savefig("{}/{}_bi.pdf".format(path, file_prefix))
-    plt.close()
+        fig = bi_fit.plot(xlabel="Time (ps)", ylabel="Counts")
+        axes = fig.gca()
+        axes.set_yscale('log')
+        plt.savefig("{}/{}_bi.pdf".format(path, file_prefix))
+        plt.close()

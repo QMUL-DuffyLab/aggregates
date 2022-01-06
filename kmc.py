@@ -412,14 +412,16 @@ if __name__ == "__main__":
     # annihilation, pool decay, pq decay, q decay
     model_dict = {
      'lut_eet': Model(20., 3600., 3600., 14., 
-         7., 1., 20., np.inf, 24. * 9., [False, True, True, False]),
+         7., 1., 20., np.inf, 24. * 3., [False, True, True, False]),
      'schlau_cohen': Model(20., 3600., 3600., 14., 
-         7., 1., 0.4, 0.4, 24. * 9., [False, True, True, False])
+         7., 1., 0.4, 0.4, 24. * 3., [False, True, True, False])
      }
     model_key = 'lut_eet'
     model = model_dict[model_key]
 
     for fluence in fluences:
+        print("Fluence = {:4.2e}, n_iterations = {:d}".format(
+            fluence, n_iterations))
         path = "out/{}/{}".format(model_key, lattice_type)
         os.makedirs(path, exist_ok=True)
         file_prefix = "{:d}_{:3.2f}_{:4.2e}".format(
@@ -488,6 +490,8 @@ if __name__ == "__main__":
 
         np.savetxt("{}/{}_total_mean_std.dat".format(path, file_prefix),
                 [tau, sigma_tau])
+        np.savetxt("{}/{}_total_emission_mean_std.dat".format(path, file_prefix),
+                [np.mean(emissions), np.std(emissions)])
         np.savetxt("{}/{}_n_es.dat".format(path, file_prefix), n_es)
         np.savetxt("{}/{}_means.dat".format(path, file_prefix), means)
         np.savetxt("{}/{}_stddevs.dat".format(path, file_prefix), stddevs)
@@ -520,26 +524,34 @@ if __name__ == "__main__":
         histvals, histbins = emission_histogram(np.ravel(emissions),
                 "{}/{}_emissions_mpl.pdf".format(path, file_prefix))
         x = histbins[:-1] + (np.diff(histbins) / 2.)
-        mono_fit = lm(1, x, histvals, model)
-        print(mono_fit.fit_report())
-        bi_fit = lm(2, x, histvals, model)
-        print(bi_fit.fit_report())
-        plt.hist(np.ravel(emissions), 200, histtype="step",
-                 color='C0', label="hist", log=True)
-        plt.plot(x, mono_fit.best_fit, color='C1', label="mono fit")
-        plt.plot(x, bi_fit.best_fit, color='C2', label="bi fit")
-        plt.legend()
-        plt.savefig("{}/{}_fit.pdf".format(path, file_prefix))
-        plt.close()
+        try:
+            mono_fit = lm(1, x, histvals, model)
+            print(mono_fit.fit_report())
+            fig = mono_fit.plot(xlabel="Time (ps)", ylabel="Counts")
+            axes = fig.gca()
+            axes.set_yscale('log')
+            plt.savefig("{}/{}_mono.pdf".format(path, file_prefix))
+            plt.close()
+        except ValueError:
+            print("Mono-exponential fit failed!")
+            pass
+        try:
+            bi_fit = lm(2, x, histvals, model)
+            print(bi_fit.fit_report())
+            fig = bi_fit.plot(xlabel="Time (ps)", ylabel="Counts")
+            axes = fig.gca()
+            axes.set_yscale('log')
+            plt.savefig("{}/{}_bi.pdf".format(path, file_prefix))
+            plt.close()
+        except ValueError:
+            print("Bi-exponential fit failed!")
+            pass
 
-        fig = mono_fit.plot(xlabel="Time (ps)", ylabel="Counts")
-        axes = fig.gca()
-        axes.set_yscale('log')
-        plt.savefig("{}/{}_mono.pdf".format(path, file_prefix))
-        plt.close()
+        # plt.hist(np.ravel(emissions), 200, histtype="step",
+        #          color='C0', label="hist", log=True)
+        # plt.plot(x, mono_fit.best_fit, color='C1', label="mono fit")
+        # plt.plot(x, bi_fit.best_fit, color='C2', label="bi fit")
+        # plt.legend()
+        # plt.savefig("{}/{}_fit.pdf".format(path, file_prefix))
+        # plt.close()
 
-        fig = bi_fit.plot(xlabel="Time (ps)", ylabel="Counts")
-        axes = fig.gca()
-        axes.set_yscale('log')
-        plt.savefig("{}/{}_bi.pdf".format(path, file_prefix))
-        plt.close()

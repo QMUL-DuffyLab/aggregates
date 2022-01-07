@@ -121,14 +121,50 @@ class Iteration():
         sigma @ 480nm \approx 1.1E-14 - might need changing!
         '''
         l = fluence * 1.1E-14
-        self.n_e = 0
-        occupied = []
-        for i in range(len(self.aggregate.trimers)):
-            p = self.rng.poisson(lam=l)
-            self.n_i[i] = p
-            self.n_e += p
-            for k in range(p):
-                occupied.append(i)
+        penalise = True
+        penalty_ratio = 0.1
+        '''
+        the first block does not penalise multiple excitation and
+        just places a number of excitations on each trimer which is
+        drawn from the corresponding Poisson distribution.
+        to penalise multiple excitation we have to do a bit more.
+        first get a total number of excitations for this iteration.
+        decreasing penalty_ratio makes it less and less likely that
+        multiple excitations will be placed on the same trimer.
+        this way probably isn't the most efficient way of placing them
+        but it's python so that's the least of our worries speed-wise
+        '''
+        if penalise is False:
+            self.n_e = 0
+            occupied = []
+            for i in range(len(self.aggregate.trimers)):
+                p = self.rng.poisson(lam=l)
+                self.n_i[i] = p
+                self.n_e += p
+                for k in range(p):
+                    occupied.append(i)
+        else:
+            self.n_e = 0
+            occupied = []
+            for i in range(len(self.aggregate.trimers)):
+                self.n_e += self.rng.poisson(lam=l)
+            placed = 0
+            while placed < self.n_e:
+                i = self.rng.integers(low=0,
+                        high=len(self.aggregate.trimers))
+                # no penalty if trimer's unpopulated, obviously
+                if self.n_i[i] == 0:
+                    self.n_i[i] += 1
+                    placed += 1
+                    occupied.append(i)
+                else:
+                    # penalise
+                    r = self.rng.random()
+                    if r < penalty_ratio:
+                        self.n_i[i] += 1
+                        occupied.append(i)
+                        placed += 1
+
         
         self.currently_occupied = np.array(occupied)
         # print("ρ_exc = {:6.3f}; n_exc = {:d}".format(l, self.n_e))
@@ -411,10 +447,10 @@ if __name__ == "__main__":
     # lazy - make a different main file to loop over models and fluences
     # annihilation, pool decay, pq decay, q decay
     model_dict = {
-     'lut_eet': Model(20., 3600., 3600., 14., 
-         7., 1., 20., np.inf, 24. * 3., [False, True, True, False]),
-     'schlau_cohen': Model(20., 3600., 3600., 14., 
-         7., 1., 0.4, 0.4, 24. * 3., [False, True, True, False])
+     'lut_eet': Model(20., 3800., 3800., 14., 
+         7., 1., 20., np.inf, 600., [False, True, True, False]),
+     'schlau_cohen': Model(20., 3800., 3800., 14., 
+         7., 1., 0.4, 0.4, 600., [False, True, True, False])
      }
     model_key = 'lut_eet'
     model = model_dict[model_key]
@@ -435,6 +471,7 @@ if __name__ == "__main__":
         stddevs = []
         emission_means = []
         emission_stddevs = []
+        yields = []
         decay_file     = open(decay_filename, mode='w')
         emissions_file = open(emission_filename, mode='w')
         for i in range(n_iterations):
@@ -454,6 +491,7 @@ if __name__ == "__main__":
             stddevs.append(np.std(it.loss_times))
             emission_means.append(np.mean(emissions))
             emission_stddevs.append(np.std(emissions))
+            yields.append(emission_means[-1]/means[-1])
             if(verbose):
                 print("Iteration {:d}".format(i))
                 print("=== μ, σ ===")

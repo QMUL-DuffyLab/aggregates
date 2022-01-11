@@ -122,7 +122,6 @@ class Iteration():
         '''
         l = fluence * 1.1E-14
         penalise = True
-        penalty_ratio = 0.1
         '''
         the first block does not penalise multiple excitation and
         just places a number of excitations on each trimer which is
@@ -145,25 +144,29 @@ class Iteration():
                     occupied.append(i)
         else:
             self.n_e = 0
+            photons = 0
             occupied = []
             for i in range(len(self.aggregate.trimers)):
-                self.n_e += self.rng.poisson(lam=l)
-            placed = 0
-            while placed < self.n_e:
+                photons += self.rng.poisson(lam=l)
+            attempts = 0
+            while attempts < photons:
                 i = self.rng.integers(low=0,
                         high=len(self.aggregate.trimers))
                 # no penalty if trimer's unpopulated, obviously
                 if self.n_i[i] == 0:
                     self.n_i[i] += 1
-                    placed += 1
+                    self.n_e += 1
                     occupied.append(i)
                 else:
                     # penalise
                     r = self.rng.random()
-                    if r < penalty_ratio:
+                    ratio = 2.
+                    thresh = (24. - ratio * self.n_i[i]) / 24.
+                    if thresh > 0. and r < thresh:
                         self.n_i[i] += 1
                         occupied.append(i)
-                        placed += 1
+                        self.n_e += 1
+                attempts += 1
 
         
         self.currently_occupied = np.array(occupied)
@@ -448,9 +451,9 @@ if __name__ == "__main__":
     # annihilation, pool decay, pq decay, q decay
     model_dict = {
      'lut_eet': Model(20., 3800., 3800., 14., 
-         7., 1., 20., np.inf, 600., [False, True, True, False]),
+         7., 1., 20., np.inf, 550., [False, True, True, False]),
      'schlau_cohen': Model(20., 3800., 3800., 14., 
-         7., 1., 0.4, 0.4, 600., [False, True, True, False])
+         7., 1., 0.4, 0.4, 550., [False, True, True, False])
      }
     model_key = 'lut_eet'
     model = model_dict[model_key]

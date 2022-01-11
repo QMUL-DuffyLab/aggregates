@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys, os
-import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -10,10 +9,12 @@ from trimer import Aggregate, theoretical_aggregate
 
 class Model():
     '''
-    take a set of rates and normalise them to the hopping rate:
-    e.g. a fast pre-quencher to quencher rate of 400fs^{-1}
-    compared to a hopping rate of 20ps^{-1} gives a rate of 20/0.4 = 50.
-    Give as equivalent times in ps!
+    Simple container for a set of relevant rates - tau_x is the time constant
+    of process x. e.g. we assume "pool" chlorophylls decay on a timescale
+    of a few nanoseconds, whereas the decay of a carotenoid quencher might
+    be 10-15ps. Give these in ps!
+    emissive is a bool list I use to track which of the decays are emissive.
+    Not currently useful but might be.
     '''
     def __init__(self, tau_hop, tau_pool, tau_pq, tau_q,
             t_po_pq, t_pq_po, t_pq_q, t_q_pq, t_annihilation,
@@ -31,6 +32,14 @@ class Model():
         self.emissive = emissive
 
 class Iteration():
+    '''
+    Take an aggregate - either one constructed from an experimental image
+    or a generated one - populate it with a fraction of quenchers and a
+    set of excitons (the number of excitons is dependent on fluence), and
+    run kinetic Monte Carlo until all the excitons are gone.
+    Record the intervals between exciton losses and whether these were
+    emissive or not.
+    '''
     def __init__(self, aggregate, model, seed, rho_quenchers,
             n_steps, fluence, verbose=False, draw_frames=False):
         if verbose:
@@ -55,7 +64,8 @@ class Iteration():
         # four ways to lose population: annihilation, decay from a
         # chl pool (trimer), decay from pre-quencher, decay from quencher
         self.decay_type = np.full((self.n_e), -1, dtype=int)
-        self.transitions = np.array(self.transition_calc())
+        # self.transitions = np.array(self.transition_calc())
+        self.transitions = self.transition_calc()
         if seed == 0:
             self.draw("frames/init_{:03d}.jpg".format(seed))
         if self.n_st > 0:
@@ -73,29 +83,45 @@ class Iteration():
                 if draw_frames:
                     if i % 100 == 0:
                         self.draw("frames/{:03d}_{:03d}.jpg".format(i, seed))
-        self.kmc_cleanup()
             
     def transition_calc(self):
         self.transitions = [[] for _ in range(self.n_sites)]
+        max_length = np.max(np.fromiter((len(x.get_neighbours()) 
+                     for x in self.aggregate.trimers), int))
+        # fill with nan - kMC uses the rates to decide a move
+        # self.transitions = np.full((self.n_sites, max_length + 3), np.nan,
+                # dtype=float)
         for i in range(self.n_sites):
+            # t = np.full((max_length + 3), np.nan, dtype=float)
             t = []
             if i < self.n_sites - 2:
                 # trimer (pool)
-                for j in range(len(self.aggregate.trimers[i].get_neighbours())):
+                n_neigh = len(self.aggregate.trimers[i].get_neighbours())
+                for j in range(n_neigh):
+                    # t[j] = model.hop
                     t.append(model.hop)
                 if self.quenchers[i]:
+                    # t[n_neigh] = model.k_po_pq
                     t.append(model.k_po_pq)
                 else:
+                    # t[n_neigh] = 0.
                     t.append(0.)
+                # t[n_neigh + 1] = model.g_pool
+                # t[n_neigh + 2] = model.k_ann
                 t.append(model.g_pool)
                 t.append(model.k_ann)
             elif i == self.n_sites - 2:
                 # pre-quencher
+                # t[0] = model.k_pq_po
+                # t[1] = model.k_pq_q
+                # t[2] = model.g_pq
                 t.append(model.k_pq_po)
                 t.append(model.k_pq_q)
                 t.append(model.g_pq)
             elif i == self.n_sites - 1:
                 # quencher
+                # t[0] = model.k_q_pq
+                # t[1] = model.g_q
                 t.append(model.k_q_pq)
                 t.append(model.g_q)
             self.transitions[i] = np.array(t)
@@ -104,7 +130,7 @@ class Iteration():
     
     def kmc_setup(self, rho, fluence):
         '''
-        randomly allocate quenchers based on rho_q
+        randomly allocate quenchers based on ρ_q
         '''
         self.n_q = int(len(self.aggregate.trimers) * rho)
         for i in range(self.n_q):
@@ -117,8 +143,8 @@ class Iteration():
 
         '''
         now loop over trimers and excite based on the
-        absorption cross section sigma and the fluence
-        sigma @ 480nm \approx 1.1E-14 - might need changing!
+        absorption cross section σ and the fluence
+        σ @ 480nm \approx 1.1E-14 - might need changing!
         '''
         l = fluence * 1.1E-14
         penalise = True
@@ -167,18 +193,7 @@ class Iteration():
                         occupied.append(i)
                         self.n_e += 1
                 attempts += 1
-
-        
         self.currently_occupied = np.array(occupied)
-        # print("ρ_exc = {:6.3f}; n_exc = {:d}".format(l, self.n_e))
-
-    def kmc_cleanup(self):
-        for i in range(self.n_e):
-            # only generate excitations on the pools, not quenchers
-            choice = self.rng.integers(low=0,
-                high=len(self.aggregate.trimers))
-            self.n_i[choice] += 1
-            self.currently_occupied[i] = choice
 
     def kmc_step(self):
         '''
@@ -315,6 +330,7 @@ class Iteration():
                 # self.loss_times[np.nonzero(pop_loss)[0][0]].append(self.t)
                 dt = np.nonzero(pop_loss)[0][0]
                 print("dt = {}".format(dt), file=self.output)
+                print("loss time = {}".format(self.t), file=self.output)
                 self.loss_times[self.n_current] = self.t
                 self.decay_type[self.n_current] = dt
                 # if self.model.emissive[dt] is True:
@@ -324,6 +340,7 @@ class Iteration():
         return
 
     def draw(self, filename):
+        import cv2
         '''
         draw the current state of the system.
         pretty ugly to do this manually in opencv
@@ -390,7 +407,8 @@ def select_process(k_p, rand):
     choose which configuration to jump to given a set of transition rates
     to those configurations from the current one, and a random number in [0,1].
     '''
-    k_p_s = np.cumsum(k_p)
+    # [k_p >= 0.] here shouldn't be needed actually
+    k_p_s = np.cumsum(k_p[k_p >= 0.])
     k_tot = k_p_s[-1]
     i = 0
     while rand * k_tot > k_p_s[i]:
@@ -442,7 +460,7 @@ if __name__ == "__main__":
     r = 5.
     lattice_type = "hex"
     n_iter = 8 # 434 trimers for honeycomb
-    n_iterations = 1000
+    n_iterations = 2
     rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
     fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
@@ -468,7 +486,9 @@ if __name__ == "__main__":
         decay_filename = "{}/{}_decays.dat".format(path, file_prefix)
         emission_filename = "{}/{}_emissions.dat".format(path, file_prefix)
 
-        agg = theoretical_aggregate(r, 0., lattice_type, n_iter)
+        # note - second parameter here is the nn cutoff. set to 0 to
+        # disable excitation hopping between trimers
+        agg = theoretical_aggregate(r, 2.5*r, lattice_type, n_iter)
         n_es = []
         means = []
         stddevs = []
@@ -478,11 +498,11 @@ if __name__ == "__main__":
         decay_file     = open(decay_filename, mode='w')
         emissions_file = open(emission_filename, mode='w')
         for i in range(n_iterations):
-            verbose = False
-            width = os.get_terminal_size().columns - 20
+            verbose = True
             emissions = []
             it = Iteration(agg, model, i,
                     rho_quenchers, 0, fluence, verbose=verbose)
+            print(it.loss_times)
             n_es.append(it.n_e)
             for k in range(it.n_e):
                 print("{:1.5e} {:1d}".format(it.loss_times[k], it.decay_type[k]), 
@@ -495,13 +515,14 @@ if __name__ == "__main__":
             emission_means.append(np.mean(emissions))
             emission_stddevs.append(np.std(emissions))
             yields.append(emission_means[-1]/means[-1])
-            if(verbose):
+            if verbose is True:
                 print("Iteration {:d}".format(i))
                 print("=== μ, σ ===")
                 print(means[-1], stddevs[-1])
                 print("=== EMISSION μ, σ ===")
                 print(emission_means[-1], emission_stddevs[-1])
             else:
+                width = os.get_terminal_size().columns - 20
                 print("\rProgress: [{0}{1}] {2}%".format(
                     '█'*int((i + 1) * width/n_iterations),
                     ' '*int(width - ((i + 1) * width/n_iterations)),
@@ -587,12 +608,3 @@ if __name__ == "__main__":
         except ValueError:
             print("Bi-exponential fit failed!")
             pass
-
-        # plt.hist(np.ravel(emissions), 200, histtype="step",
-        #          color='C0', label="hist", log=True)
-        # plt.plot(x, mono_fit.best_fit, color='C1', label="mono fit")
-        # plt.plot(x, bi_fit.best_fit, color='C2', label="bi fit")
-        # plt.legend()
-        # plt.savefig("{}/{}_fit.pdf".format(path, file_prefix))
-        # plt.close()
-

@@ -58,13 +58,12 @@ class Iteration():
         # self.n_e and self.currently_occupied are set in kmc_setup
         self.n_current = self.n_e
         self.previous_pool = np.zeros(self.n_e, dtype=int)
-        self.t = 0. # probably need to write a proper init function
+        self.t = 0.
         self.ti = [0.]
         self.loss_times = np.full((self.n_e), np.nan)
         # four ways to lose population: annihilation, decay from a
         # chl pool (trimer), decay from pre-quencher, decay from quencher
         self.decay_type = np.full((self.n_e), -1, dtype=int)
-        # self.transitions = np.array(self.transition_calc())
         self.transitions = self.transition_calc()
         if seed == 0:
             self.draw("frames/init_{:03d}.jpg".format(seed))
@@ -85,43 +84,46 @@ class Iteration():
                         self.draw("frames/{:03d}_{:03d}.jpg".format(i, seed))
             
     def transition_calc(self):
+        '''
+        generate a list of numpy arrays where each array is the set
+        of all possible transition rates for the corresponding trimer.
+        kMC then picks a trimer and looks up these rates to determine moves.
+        it's a list of np arrays because they're ragged atm; different
+        trimers can have different numbers of neighbours. this is
+        sufficient for now but see the note below otherwise
+        '''
         self.transitions = [[] for _ in range(self.n_sites)]
-        max_length = np.max(np.fromiter((len(x.get_neighbours()) 
+        max_neighbours = np.max(np.fromiter((len(x.get_neighbours()) 
                      for x in self.aggregate.trimers), int))
-        # fill with nan - kMC uses the rates to decide a move
-        # self.transitions = np.full((self.n_sites, max_length + 3), np.nan,
-                # dtype=float)
+        # note: if it was necessary to make all these the same length,
+        # e.g. if it was in C++ or needed compiling down or whatever,
+        # you could do this by padding the neighbours left with zeroes!
+        # t = np.zeroes(max_neighbours + 3, dtype=float)
+        # for j in range(n_neigh):
+        #     t[max_neighbours - (j + 1)] = model.hop
+        # for max_neighbours = 6, n_neigh = 3, this gives
+        # [0., 0., 0., hop, hop, hop]
+        # for the pre-quencher and quencher you'd have to do t[-3] etc.
         for i in range(self.n_sites):
-            # t = np.full((max_length + 3), np.nan, dtype=float)
             t = []
             if i < self.n_sites - 2:
                 # trimer (pool)
                 n_neigh = len(self.aggregate.trimers[i].get_neighbours())
                 for j in range(n_neigh):
-                    # t[j] = model.hop
                     t.append(model.hop)
                 if self.quenchers[i]:
-                    # t[n_neigh] = model.k_po_pq
                     t.append(model.k_po_pq)
                 else:
-                    # t[n_neigh] = 0.
                     t.append(0.)
-                # t[n_neigh + 1] = model.g_pool
-                # t[n_neigh + 2] = model.k_ann
                 t.append(model.g_pool)
                 t.append(model.k_ann)
             elif i == self.n_sites - 2:
                 # pre-quencher
-                # t[0] = model.k_pq_po
-                # t[1] = model.k_pq_q
-                # t[2] = model.g_pq
                 t.append(model.k_pq_po)
                 t.append(model.k_pq_q)
                 t.append(model.g_pq)
             elif i == self.n_sites - 1:
                 # quencher
-                # t[0] = model.k_q_pq
-                # t[1] = model.g_q
                 t.append(model.k_q_pq)
                 t.append(model.g_q)
             self.transitions[i] = np.array(t)
@@ -143,7 +145,7 @@ class Iteration():
 
         '''
         now loop over trimers and excite based on the
-        absorption cross section σ and the fluence
+        absorption cross section σ and the fluence.
         σ @ 480nm \approx 1.1E-14 - might need changing!
         '''
         l = fluence * 1.1E-14
@@ -154,10 +156,10 @@ class Iteration():
         drawn from the corresponding Poisson distribution.
         to penalise multiple excitation we have to do a bit more.
         first get a total number of excitations for this iteration.
-        decreasing penalty_ratio makes it less and less likely that
-        multiple excitations will be placed on the same trimer.
-        this way probably isn't the most efficient way of placing them
-        but it's python so that's the least of our worries speed-wise
+        then thresh makes it less and less likely multiple excitations
+        will be placed on the same trimer; change this to penalise more/less.
+        this way probably isn't the most efficient way of placing them,
+        but it's python, so that's the least of our worries speed-wise
         '''
         if penalise is False:
             self.n_e = 0
@@ -203,8 +205,6 @@ class Iteration():
         if self.n_current == 0:
             print("no excitations left!")
             return -1
-        on_pq = [False for _ in range(self.n_e)]
-        on_q = [False for _ in range(self.n_e)]
         for i in range(self.n_current):
             # annihilation, pool decay, pq decay, q decay
             pop_loss = [False for _ in range(4)]
@@ -248,9 +248,8 @@ class Iteration():
                     self.n_i[-2]  += 1
                     self.currently_occupied[i] = self.n_sites - 2
                     self.previous_pool[i] = ind
-                    print("i = {}, on_pq = {}, previous pool = {}".format(i, on_pq, self.previous_pool),
-                            file=self.output)
-                    on_pq[i] = True
+                    print("i = {}, on_pq, previous pool = {}".format(i,
+                        self.previous_pool), file=self.output)
                 else:
                     # hop to neighbour
                     nn = self.aggregate.trimers[ind].get_neighbours()[q].index
@@ -333,8 +332,6 @@ class Iteration():
                 print("loss time = {}".format(self.t), file=self.output)
                 self.loss_times[self.n_current] = self.t
                 self.decay_type[self.n_current] = dt
-                # if self.model.emissive[dt] is True:
-                #     self.emissions[i] = self.t
                 # zero the time to get time between decays!
                 self.t = 0.
         return
@@ -407,8 +404,7 @@ def select_process(k_p, rand):
     choose which configuration to jump to given a set of transition rates
     to those configurations from the current one, and a random number in [0,1].
     '''
-    # [k_p >= 0.] here shouldn't be needed actually
-    k_p_s = np.cumsum(k_p[k_p >= 0.])
+    k_p_s = np.cumsum(k_p)
     k_tot = k_p_s[-1]
     i = 0
     while rand * k_tot > k_p_s[i]:
@@ -498,11 +494,10 @@ if __name__ == "__main__":
         decay_file     = open(decay_filename, mode='w')
         emissions_file = open(emission_filename, mode='w')
         for i in range(n_iterations):
-            verbose = True
+            verbose = False
             emissions = []
             it = Iteration(agg, model, i,
                     rho_quenchers, 0, fluence, verbose=verbose)
-            print(it.loss_times)
             n_es.append(it.n_e)
             for k in range(it.n_e):
                 print("{:1.5e} {:1d}".format(it.loss_times[k], it.decay_type[k]), 

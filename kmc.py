@@ -220,7 +220,12 @@ class Iteration():
                 # pool
                 n = self.n_i[ind]
                 if n >= 2:
-                    (q, k_tot) = select_process(self.transitions[ind], rand1)
+                    # multiple ways annihilation can proceed
+                    # actually this works for n = 1 too in principle
+                    fac = n * (n - 1) / 2.
+                    rates = self.transitions[ind]
+                    rates[-1] *= fac
+                    (q, k_tot) = select_process(rates, rand1)
                 else:
                     (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
                 # uncomment next line to turn off annihilation
@@ -407,9 +412,14 @@ def select_process(k_p, rand):
     k_p_s = np.cumsum(k_p)
     k_tot = k_p_s[-1]
     i = 0
+    process = 0
+    # the check here that k_p_s[i] > k_p_s[i - 1] allows for
+    # zeroes in the rates without picking spurious processes
     while rand * k_tot > k_p_s[i]:
         i += 1
-    return (i, k_tot)
+        if k_p_s[i] > k_p_s[i - 1]:
+            process += 1
+    return (process, k_tot)
 
 def estimate_posterior_mean(loss_times):
     lambda_i = []
@@ -456,7 +466,7 @@ if __name__ == "__main__":
     r = 5.
     lattice_type = "hex"
     n_iter = 8 # 434 trimers for honeycomb
-    n_iterations = 2
+    n_iterations = 1000
     rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
     fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
@@ -465,9 +475,9 @@ if __name__ == "__main__":
     # annihilation, pool decay, pq decay, q decay
     model_dict = {
      'lut_eet': Model(20., 3800., 3800., 14., 
-         7., 1., 20., np.inf, 550., [False, True, True, False]),
+         7., 1., 20., np.inf, 24., [False, True, True, False]),
      'schlau_cohen': Model(20., 3800., 3800., 14., 
-         7., 1., 0.4, 0.4, 550., [False, True, True, False])
+         7., 1., 0.4, 0.4, 24., [False, True, True, False])
      }
     model_key = 'lut_eet'
     model = model_dict[model_key]
@@ -484,7 +494,7 @@ if __name__ == "__main__":
 
         # note - second parameter here is the nn cutoff. set to 0 to
         # disable excitation hopping between trimers
-        agg = theoretical_aggregate(r, 2.5*r, lattice_type, n_iter)
+        agg = theoretical_aggregate(r, 0., lattice_type, n_iter)
         n_es = []
         means = []
         stddevs = []

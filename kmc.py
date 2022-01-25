@@ -7,6 +7,31 @@ import seaborn as sns
 import pandas as pd
 from trimer import Aggregate, theoretical_aggregate
 
+class Pulse():
+    def __init__(self, fwhm, mu):
+        self.fwhm = fwhm # ps
+        self.mu = mu
+        self.sigma = fwhm / 2. * np.sqrt(2. * np.log(2.))
+        self.t = np.arange(0., 2. * mu, 1.)
+        self.g = 1. / (sigma * np.sqrt(2. * np.pi)) *
+    np.exp(- (t - mu)**2 / (np.sqrt(2.) * sigma)**2)
+
+
+def pulse(fwhm=50, mu=100.): # fwhm in picoseconds!
+    import numpy as np
+    sigma = fwhm / 2. * np.sqrt(2. * np.log(2.))
+    t = np.arange(0., 2 * mu, 0.1.)
+    g = 1. / (sigma * np.sqrt(2. * np.pi)) *
+    np.exp(- (t - mu)**2 / (np.sqrt(2.) * sigma)**2)
+    return g
+
+def generation_rate(xsec, time, pulse, sigma_ratio, n_i):
+    if time > 4. * pulse.fwhm:
+        return 0.
+    else:
+        jt = pulse[int(time)]
+        return xsec * jt * (N - (1 + sigma_ratio) * n_i)
+
 class Model():
     '''
     Simple container for a set of relevant rates - tau_x is the time constant
@@ -441,14 +466,16 @@ def estimate_posterior_mean(loss_times):
         lambda_i.append(l)
     return lambda_i
 
-def emission_histogram(emissions, filename, num_bins=200):
+def histogram(data, filename, binwidth=25.):
     '''
     plot a histogram of all the emissive decays via matplotlib;
     return the set of bin values and edges so we can fit them after
     '''
+    import numpy as np
     import matplotlib.pyplot as plt
-    (n, bins, patches)= plt.hist(emissions, num_bins,
-            histtype="step", color='C0')
+    (n, bins, patches)= plt.hist(data,
+            bins=np.arange(np.min(data), np.max(data) + binwidth,
+                binwidth), histtype="step", color='C0')
     plt.gca().set_ylabel("Counts")
     plt.gca().set_xlabel("Time (ps)")
     plt.savefig(filename)
@@ -592,15 +619,16 @@ if __name__ == "__main__":
         plt.savefig("{}/{}_plot.pdf".format(path, file_prefix))
         plt.close()
 
-        ax = sns.histplot(data=decays[:, 0], element="step",
+        ax = sns.histplot(data=emissions, element="step",
                           binwidth=25., fill=False)
         ax.set_xlabel("Time (ps)")
-        plt.savefig("{}/{}_emissions.pdf".format(path, file_prefix))
+        plt.savefig("{}/{}_hist.pdf".format(path, file_prefix))
         plt.close()
 
         # matplotlib histogram - output bins and vals for lmfit
-        histvals, histbins = emission_histogram(decays[:, 0],
-                "{}/{}_emissions_mpl.pdf".format(path, file_prefix))
+        # emissions or all decays? who tf knows :)
+        histvals, histbins = histogram(emissions,
+                "{}/{}_hist_mpl.pdf".format(path, file_prefix))
         x = histbins[:-1] + (np.diff(histbins) / 2.)
         try:
             mono_fit = lm(1, x, histvals, model)
@@ -608,6 +636,7 @@ if __name__ == "__main__":
             fig = mono_fit.plot(xlabel="Time (ps)", ylabel="Counts")
             axes = fig.gca()
             axes.set_yscale('log')
+            ax.set_ylim((1., np.max(x)))
             plt.savefig("{}/{}_mono.pdf".format(path, file_prefix))
             plt.close()
             comps = mono_fit.best_values
@@ -623,6 +652,7 @@ if __name__ == "__main__":
             fig = bi_fit.plot(xlabel="Time (ps)", ylabel="Counts")
             axes = fig.gca()
             axes.set_yscale('log')
+            ax.set_ylim((1., np.max(x)))
             plt.savefig("{}/{}_bi.pdf".format(path, file_prefix))
             plt.close()
             comps = bi_fit.best_values

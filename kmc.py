@@ -187,9 +187,12 @@ class Iteration():
                     occupied.append(i)
                 else:
                     # penalise
+                    # note to self: time-based penalty?
+                    # i.e. a trimer can only absorb one photon
+                    # every 5ps or something?
                     r = self.rng.random()
-                    ratio = 2.
-                    thresh = (24. - ratio * self.n_i[i]) / 24.
+                    sigma_ratio = 3.
+                    thresh = (24. - (1. + sigma_ratio) * self.n_i[i]) / 24.
                     if thresh > 0. and r < thresh:
                         self.n_i[i] += 1
                         occupied.append(i)
@@ -205,7 +208,7 @@ class Iteration():
         if self.n_current == 0:
             print("no excitations left!")
             return -1
-        for i in range(self.n_current):
+        for j in range(self.n_current):
             # annihilation, pool decay, pq decay, q decay
             pop_loss = [False for _ in range(4)]
             print("Currently occupied = {}".format(self.currently_occupied),
@@ -229,6 +232,7 @@ class Iteration():
                         file=self.output)
                 if (q == len(self.transitions[ind]) - 1):
                     # annihilation
+                    # second order! need to draw another number
                     print("po ann from trimer {}".format(ind), file=self.output)
                     self.n_i[ind] -= 1
                     self.n_current -= 1
@@ -456,7 +460,7 @@ if __name__ == "__main__":
     r = 5.
     lattice_type = "hex"
     n_iter = 8 # 434 trimers for honeycomb
-    n_iterations = 2
+    n_iterations = 1000
     rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
     fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
@@ -465,12 +469,14 @@ if __name__ == "__main__":
     # annihilation, pool decay, pq decay, q decay
     model_dict = {
      'lut_eet': Model(20., 3800., 3800., 14., 
-         7., 1., 20., np.inf, 550., [False, True, True, False]),
+         7., 1., 20., np.inf, 48., [False, True, True, False]),
      'schlau_cohen': Model(20., 3800., 3800., 14., 
-         7., 1., 0.4, 0.4, 550., [False, True, True, False])
+         7., 1., 0.4, 0.4, 48., [False, True, True, False])
      }
     model_key = 'lut_eet'
     model = model_dict[model_key]
+    mono_tau = []
+    bi_tau = []
 
     for fluence in fluences:
         print("Fluence = {:4.2e}, n_iterations = {:d}".format(
@@ -484,7 +490,7 @@ if __name__ == "__main__":
 
         # note - second parameter here is the nn cutoff. set to 0 to
         # disable excitation hopping between trimers
-        agg = theoretical_aggregate(r, 2.5*r, lattice_type, n_iter)
+        agg = theoretical_aggregate(r, 0., lattice_type, n_iter)
         n_es = []
         means = []
         stddevs = []
@@ -501,7 +507,7 @@ if __name__ == "__main__":
             n_es.append(it.n_e)
             for k in range(it.n_e):
                 print("{:1.5e} {:1d}".format(it.loss_times[k], it.decay_type[k]), 
-                        file=decay_file) 
+                        file=decay_file)
                 if model.emissive[it.decay_type[k]] is True:
                     print("{:1.5e}".format(it.loss_times[k]), file=emissions_file)
                     emissions.append(it.loss_times[k])
@@ -571,14 +577,14 @@ if __name__ == "__main__":
         plt.savefig("{}/{}_plot.pdf".format(path, file_prefix))
         plt.close()
 
-        ax = sns.histplot(data=np.ravel(emissions), element="step",
-                          binwidth=50., fill=False)
+        ax = sns.histplot(data=decays[:, 0], element="step",
+                          binwidth=25., fill=False)
         ax.set_xlabel("Time (ps)")
         plt.savefig("{}/{}_emissions.pdf".format(path, file_prefix))
         plt.close()
 
         # matplotlib histogram - output bins and vals for lmfit
-        histvals, histbins = emission_histogram(np.ravel(emissions),
+        histvals, histbins = emission_histogram(decays[:, 0],
                 "{}/{}_emissions_mpl.pdf".format(path, file_prefix))
         x = histbins[:-1] + (np.diff(histbins) / 2.)
         try:
@@ -589,6 +595,10 @@ if __name__ == "__main__":
             axes.set_yscale('log')
             plt.savefig("{}/{}_mono.pdf".format(path, file_prefix))
             plt.close()
+            comps = mono_fit.best_values
+            print(comps)
+            mono_tau.append([fluence, comps['exp1decay']])
+            print("Mono-exponential <tau> = {:8.3f}".format(comps['exp1decay']))
         except ValueError:
             print("Mono-exponential fit failed!")
             pass
@@ -600,6 +610,15 @@ if __name__ == "__main__":
             axes.set_yscale('log')
             plt.savefig("{}/{}_bi.pdf".format(path, file_prefix))
             plt.close()
+            comps = bi_fit.best_values
+            avg_tau = (comps['exp1decay'] * comps['exp1amplitude'] \
+                + comps['exp2decay'] * comps['exp2amplitude']) \
+                / (comps['exp1amplitude'] + comps['exp2amplitude'])
+            bi_tau.append([fluence, avg_tau])
+            print("Bi-exponential <tau> = {:8.3f}".format(avg_tau))
         except ValueError:
             print("Bi-exponential fit failed!")
             pass
+        
+    np.savetxt("{}/mono_tau.dat".format(path), np.array(mono_tau))
+    np.savetxt("{}/bi_tau.dat".format(path), np.array(bi_tau))

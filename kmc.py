@@ -223,7 +223,12 @@ class Iteration():
                 # pool
                 n = self.n_i[ind]
                 if n >= 2:
-                    (q, k_tot) = select_process(self.transitions[ind], rand1)
+                    # multiple ways annihilation can proceed
+                    # actually this works for n = 1 too in principle
+                    fac = n * (n - 1) / 2.
+                    rates = self.transitions[ind]
+                    rates[-1] *= fac
+                    (q, k_tot) = select_process(rates, rand1)
                 else:
                     (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
                 # uncomment next line to turn off annihilation
@@ -411,9 +416,14 @@ def select_process(k_p, rand):
     k_p_s = np.cumsum(k_p)
     k_tot = k_p_s[-1]
     i = 0
+    process = 0
+    # the check here that k_p_s[i] > k_p_s[i - 1] allows for
+    # zeroes in the rates without picking spurious processes
     while rand * k_tot > k_p_s[i]:
         i += 1
-    return (i, k_tot)
+        if k_p_s[i] > k_p_s[i - 1]:
+            process += 1
+    return (process, k_tot)
 
 def estimate_posterior_mean(loss_times):
     lambda_i = []

@@ -226,7 +226,12 @@ class Iteration():
                     # multiple ways annihilation can proceed
                     # actually this works for n = 1 too in principle
                     fac = n * (n - 1) / 2.
-                    rates = self.transitions[ind]
+                    # copy()!!! fucking python makes a reference normally
+                    rates = self.transitions[ind].copy()
+                    if self.transitions[ind][-1] != model.k_ann:
+                        print("annihilation rate is bad!!!!!!!")
+                    if rates[-1] != model.k_ann:
+                        print("annihilation rate is bad!!!!!!!")
                     rates[-1] *= fac
                     (q, k_tot) = select_process(rates, rand1)
                 else:

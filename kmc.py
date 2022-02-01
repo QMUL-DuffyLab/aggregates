@@ -13,17 +13,9 @@ class Pulse():
         self.mu = mu
         self.sigma = fwhm / 2. * np.sqrt(2. * np.log(2.))
         self.t = np.arange(0., 2. * mu, 1.)
-        self.g = 1. / (sigma * np.sqrt(2. * np.pi)) *
-    np.exp(- (t - mu)**2 / (np.sqrt(2.) * sigma)**2)
+        self.ft = 1. / (self.sigma * np.sqrt(2. * np.pi)) * \
+    np.exp(- (self.t - self.mu)**2 / (np.sqrt(2.) * self.sigma)**2)
 
-
-def pulse(fwhm=50, mu=100.): # fwhm in picoseconds!
-    import numpy as np
-    sigma = fwhm / 2. * np.sqrt(2. * np.log(2.))
-    t = np.arange(0., 2 * mu, 0.1.)
-    g = 1. / (sigma * np.sqrt(2. * np.pi)) *
-    np.exp(- (t - mu)**2 / (np.sqrt(2.) * sigma)**2)
-    return g
 
 def generation_rate(xsec, time, pulse, sigma_ratio, n_i):
     if time > 4. * pulse.fwhm:
@@ -43,20 +35,24 @@ class Model():
     '''
     def __init__(self, tau_hop, tau_pool, tau_pq, tau_q,
             t_po_pq, t_pq_po, t_pq_q, t_q_pq, t_annihilation,
-            emissive):
-        self.tau_hop  = tau_hop
-        self.hop      = 1. / tau_hop
-        self.g_pool   = 1. / tau_pool
-        self.g_pq     = 1. / tau_pq
-        self.g_q      = 1. / tau_q
-        self.k_po_pq  = 1. / t_po_pq
-        self.k_pq_po  = 1. / t_pq_po
-        self.k_pq_q   = 1. / t_pq_q
-        self.k_q_pq   = 1. / t_q_pq
-        self.k_ann    = 1. / t_annihilation
-        self.emissive = emissive
+            emissive, decay_on_pq, ann_on_pq):
+        self.tau_hop        = tau_hop
+        self.hop            = 1. / tau_hop
+        self.g_pool         = 1. / tau_pool
+        self.g_pq           = 1. / tau_pq
+        self.g_q            = 1. / tau_q
+        self.k_po_pq        = 1. / t_po_pq
+        self.k_pq_po        = 1. / t_pq_po
+        self.k_pq_q         = 1. / t_pq_q
+        self.k_q_pq         = 1. / t_q_pq
+        self.k_ann          = 1. / t_annihilation
+        self.emissive       = emissive
+        self.decay_on_pq    = decay_on_pq
+        self.ann_on_pq      = ann_on_pq
 
 class Iteration():
+    import numpy as np
+    import cv2
     '''
     Take an aggregate - either one constructed from an experimental image
     or a generated one - populate it with a fraction of quenchers and a
@@ -65,7 +61,7 @@ class Iteration():
     Record the intervals between exciton losses and whether these were
     emissive or not.
     '''
-    def __init__(self, aggregate, model, seed, rho_quenchers,
+    def __init__(self, aggregate, model, pulse, seed, rho_quenchers,
             n_steps, fluence, verbose=False, draw_frames=False):
         if verbose:
             self.output = sys.stdout
@@ -73,93 +69,52 @@ class Iteration():
             self.output = open(os.devnull, "w")
         self.aggregate = aggregate
         self.model = model
+        self.pulse = pulse
+        self.fluence = fluence
         self.n_st = n_steps
         self.rng = np.random.default_rng(seed=seed)
-        # + 2 for the pre-quencher and quencher
+        self.rho_quenchers = rho_quenchers
+        # pre-quencher and quencher
         self.n_sites = len(self.aggregate.trimers) + 2
         self.n_i = np.zeros(self.n_sites, dtype=np.uint8)
         self.quenchers = np.full(len(self.aggregate.trimers), False, dtype=bool)
-        self.kmc_setup(rho_quenchers, fluence)
-        # self.n_e and self.currently_occupied are set in kmc_setup
-        self.n_current = self.n_e
-        self.previous_pool = np.zeros(self.n_e, dtype=int)
+        self.quencher_setup(self.rho_quenchers)
+        self.transitions = self.transition_calc()
+        self.pq = []
+        self.q = []
         self.t = 0.
-        self.ti = [0.]
-        self.loss_times = np.full((self.n_e), np.nan)
+        self.t_tot = 0.
+        self.n_current = 0
+        self.loss_times = []
         # four ways to lose population: annihilation, decay from a
         # chl pool (trimer), decay from pre-quencher, decay from quencher
-        self.decay_type = np.full((self.n_e), -1, dtype=int)
-        self.transitions = self.transition_calc()
+        self.decay_type = []
         if seed == 0:
             self.draw("frames/init_{:03d}.jpg".format(seed))
         if self.n_st > 0:
             for i in range(self.n_st):
-                print("Step {}, time = {:8.3e}".format(i, self.t))
+                print("Step {}, time = {:8.3e}, t_tot = {:8.3e}".format(i, self.t, self.t_tot))
                 if draw_frames:
                     if i % 100 == 0:
                         self.draw("frames/{:03d}_{:03d}.jpg".format(i, seed))
                 self.kmc_step()
         else:
             i = 0
-            while self.n_current > 0:
-                self.kmc_step()
+            res = 0
+            while res == 0:
+                res = self.kmc_step()
                 i += 1
                 if draw_frames:
                     if i % 100 == 0:
                         self.draw("frames/{:03d}_{:03d}.jpg".format(i, seed))
+        self.loss_times = np.array(self.loss_times)
+        self.decay_type = np.array(self.decay_type)
             
-    def transition_calc(self):
-        '''
-        generate a list of numpy arrays where each array is the set
-        of all possible transition rates for the corresponding trimer.
-        kMC then picks a trimer and looks up these rates to determine moves.
-        it's a list of np arrays because they're ragged atm; different
-        trimers can have different numbers of neighbours. this is
-        sufficient for now but see the note below otherwise
-        '''
-        self.transitions = [[] for _ in range(self.n_sites)]
-        max_neighbours = np.max(np.fromiter((len(x.get_neighbours()) 
-                     for x in self.aggregate.trimers), int))
-        # note: if it was necessary to make all these the same length,
-        # e.g. if it was in C++ or needed compiling down or whatever,
-        # you could do this by padding the neighbours left with zeroes!
-        # t = np.zeroes(max_neighbours + 3, dtype=float)
-        # for j in range(n_neigh):
-        #     t[max_neighbours - (j + 1)] = model.hop
-        # for max_neighbours = 6, n_neigh = 3, this gives
-        # [0., 0., 0., hop, hop, hop]
-        # for the pre-quencher and quencher you'd have to do t[-3] etc.
-        for i in range(self.n_sites):
-            t = []
-            if i < self.n_sites - 2:
-                # trimer (pool)
-                n_neigh = len(self.aggregate.trimers[i].get_neighbours())
-                for j in range(n_neigh):
-                    t.append(model.hop)
-                if self.quenchers[i]:
-                    t.append(model.k_po_pq)
-                else:
-                    t.append(0.)
-                t.append(model.g_pool)
-                t.append(model.k_ann)
-            elif i == self.n_sites - 2:
-                # pre-quencher
-                t.append(model.k_pq_po)
-                t.append(model.k_pq_q)
-                t.append(model.g_pq)
-            elif i == self.n_sites - 1:
-                # quencher
-                t.append(model.k_q_pq)
-                t.append(model.g_q)
-            self.transitions[i] = np.array(t)
-            print(i, self.transitions[i], file=self.output)
-        return self.transitions
-    
-    def kmc_setup(self, rho, fluence):
+    def quencher_setup(self, rho_quench):
         '''
         randomly allocate quenchers based on ρ_q
         '''
-        self.n_q = int(len(self.aggregate.trimers) * rho)
+        self.n_q = int(len(self.aggregate.trimers) * rho_quench)
         for i in range(self.n_q):
             choice = self.rng.integers(low=0,
                 high=len(self.aggregate.trimers))
@@ -168,212 +123,230 @@ class Iteration():
                     high=len(self.aggregate.trimers))
             self.quenchers[choice] = True
 
+    def transition_calc(self):
         '''
-        now loop over trimers and excite based on the
-        absorption cross section σ and the fluence.
-        σ @ 480nm \approx 1.1E-14 - might need changing!
+        generate a list of numpy arrays where each array is the set
+        of all possible transition rates for the corresponding trimer.
+        kMC then picks a trimer and looks up these rates to determine moves.
         '''
-        l = fluence * 1.1E-14
-        penalise = True
-        '''
-        the first block does not penalise multiple excitation and
-        just places a number of excitations on each trimer which is
-        drawn from the corresponding Poisson distribution.
-        to penalise multiple excitation we have to do a bit more.
-        first get a total number of excitations for this iteration.
-        then thresh makes it less and less likely multiple excitations
-        will be placed on the same trimer; change this to penalise more/less.
-        this way probably isn't the most efficient way of placing them,
-        but it's python, so that's the least of our worries speed-wise
-        '''
-        if penalise is False:
-            self.n_e = 0
-            occupied = []
-            for i in range(len(self.aggregate.trimers)):
-                p = self.rng.poisson(lam=l)
-                self.n_i[i] = p
-                self.n_e += p
-                for k in range(p):
-                    occupied.append(i)
-        else:
-            self.n_e = 0
-            photons = 0
-            occupied = []
-            for i in range(len(self.aggregate.trimers)):
-                photons += self.rng.poisson(lam=l)
-            attempts = 0
-            while attempts < photons:
-                i = self.rng.integers(low=0,
-                        high=len(self.aggregate.trimers))
-                # no penalty if trimer's unpopulated, obviously
-                if self.n_i[i] == 0:
-                    self.n_i[i] += 1
-                    self.n_e += 1
-                    occupied.append(i)
+        self.max_neighbours = np.max(np.fromiter((len(x.get_neighbours()) 
+                     for x in self.aggregate.trimers), int))
+        self.transitions = np.zeros((self.n_sites, self.max_neighbours + 5),\
+                dtype=float)
+        for i in range(self.n_sites):
+            t = self.transitions[i].copy()
+            # first element is generation rate
+            t[0] = 0.
+            if i < self.n_sites - 2:
+                # trimer (pool)
+                n_neigh = len(self.aggregate.trimers[i].get_neighbours())
+                for j in range(n_neigh):
+                    t[self.max_neighbours - (j - 1)] = model.hop
+                if self.quenchers[i]:
+                    t[self.max_neighbours + 2] = model.k_po_pq
                 else:
-                    # penalise
-                    # note to self: time-based penalty?
-                    # i.e. a trimer can only absorb one photon
-                    # every 5ps or something?
-                    r = self.rng.random()
-                    sigma_ratio = 3.
-                    thresh = (24. - (1. + sigma_ratio) * self.n_i[i]) / 24.
-                    if thresh > 0. and r < thresh:
-                        self.n_i[i] += 1
-                        occupied.append(i)
-                        self.n_e += 1
-                attempts += 1
-        self.currently_occupied = np.array(occupied)
-
+                    t[self.max_neighbours + 2] = 0.
+                t[self.max_neighbours + 3] = model.g_pool
+                t[self.max_neighbours + 4] = model.k_ann
+            elif i == self.n_sites - 2:
+                # pre-quencher
+                t[self.max_neighbours + 1] = model.k_pq_po
+                t[self.max_neighbours + 2] = model.k_pq_q
+                t[self.max_neighbours + 3] = model.g_pq
+                t[self.max_neighbours + 4] = model.k_ann
+            elif i == self.n_sites - 1:
+                # quencher
+                t[self.max_neighbours + 2] = model.k_q_pq
+                t[self.max_neighbours + 3] = model.g_q
+                t[self.max_neighbours + 4] = model.k_ann
+            self.transitions[i] = t
+            print(i, self.transitions[i], file=self.output)
+        return self.transitions
+    
     def kmc_step(self):
         '''
         first draft of one kMC step
         extremely inefficient
         '''
-        if self.n_current == 0:
-            print("no excitations left!")
+        if self.n_current == 0 and self.t_tot > 2. * self.pulse.mu:
+            # print("no excitations left!")
             return -1
-        for j in range(self.n_current):
+        for j in range(self.n_sites):
             # annihilation, pool decay, pq decay, q decay
             pop_loss = [False for _ in range(4)]
-            print("Currently occupied = {}".format(self.currently_occupied),
-                    file=self.output)
-            i = self.rng.integers(low=0, high=self.n_current)
+            if (self.rho_quenchers != 0.):
+                i = self.rng.integers(low=0, high=self.n_sites)
+            else:
+                i = self.rng.integers(low=0, high=self.n_sites - 2)
             rand1 = self.rng.random()
             rand2 = self.rng.random()
-            ind = self.currently_occupied[np.where(self.currently_occupied >= 0)][i]
-            i = np.nonzero(self.currently_occupied == ind)[0][0]
-            print(self.n_current, i, ind, file=self.output)
-            if ind < self.n_sites - 2:
-                # pool
-                n = self.n_i[ind]
-                if n >= 2:
-                    # multiple ways annihilation can proceed
-                    # actually this works for n = 1 too in principle
-                    fac = n * (n - 1) / 2.
-                    # copy()!!! fucking python makes a reference normally
-                    rates = self.transitions[ind].copy()
-                    if self.transitions[ind][-1] != model.k_ann:
-                        print("annihilation rate is bad!!!!!!!")
-                    if rates[-1] != model.k_ann:
-                        print("annihilation rate is bad!!!!!!!")
-                    rates[-1] *= fac
-                    (q, k_tot) = select_process(rates, rand1)
-                else:
-                    (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
-                # uncomment next line to turn off annihilation
-                # (q, k_tot) = select_process(self.transitions[ind][:-1], rand1)
-                print("q = {}, kp = {}".format(q, self.transitions[ind]),
-                        file=self.output)
-                if (q == len(self.transitions[ind]) - 1):
-                    # annihilation
-                    # second order! need to draw another number
-                    print("po ann from trimer {}".format(ind), file=self.output)
-                    self.n_i[ind] -= 1
-                    self.n_current -= 1
-                    self.currently_occupied[i] = -1
-                    pop_loss[0] = True
-                elif (q == len(self.transitions[ind]) - 2):
-                    # decay
-                    print("po decay from trimer {}".format(ind), file=self.output)
-                    self.n_i[ind] -= 1
-                    self.n_current -= 1
-                    self.currently_occupied[i] = -1
-                    pop_loss[1] = True
-                elif (q == len(self.transitions[ind]) - 3):
-                    # hop to pre-quencher
-                    print("po->pq from trimer {}".format(ind), file=self.output)
-                    self.n_i[ind] -= 1
-                    self.n_i[-2]  += 1
-                    self.currently_occupied[i] = self.n_sites - 2
-                    self.previous_pool[i] = ind
-                    print("i = {}, on_pq, previous pool = {}".format(i,
-                        self.previous_pool), file=self.output)
-                else:
-                    # hop to neighbour
-                    nn = self.aggregate.trimers[ind].get_neighbours()[q].index
-                    print(q, ind, i, nn,
-                            [self.aggregate.trimers[ind].get_neighbours()[j].index 
-                            for j in range(len(
-                            self.aggregate.trimers[ind].get_neighbours()))], 
+            print(self.n_current, i, file=self.output)
+
+            n = self.n_i[i]
+            rates = self.transitions[i].copy()
+            print("before rates, n, t_tot: ", rates, self.n_i[i], self.t_tot,
+                    file=self.output)
+            rates = self.update_rates(rates, self.n_i[i], self.t_tot)
+            print("after rates: ", rates, file=self.output)
+            if np.any(rates):
+                (q, k_tot) = self.bkl(rates, rand1)
+                # print("q = {}, kp = {}".format(q, rates, k_tot))
+                if i < self.n_sites - 2:
+                    # pool
+                    # if (q == 0):
+                        # nothing
+                        # print("nothing")
+                    if (q == 1):
+                        # generation
+                        self.n_i[i] += 1
+                        self.n_current += 1
+                        print("generation on {}".format(i), file=self.output)
+                    if (q == len(rates) - 1):
+                        # annihilation
+                        print("po ann from trimer {}".format(i),
+                                file=self.output)
+                        self.n_i[i] -= 1
+                        self.n_current -= 1
+                        pop_loss[0] = True
+                    if (q == len(rates) - 2):
+                        # decay
+                        print("po decay from trimer {}".format(i),
+                                file=self.output)
+                        self.n_i[i] -= 1
+                        self.n_current -= 1
+                        pop_loss[1] = True
+                    if (q == len(rates) - 3):
+                        # hop to pre-quencher
+                        print("po->pq from trimer {}".format(i),
+                                file=self.output)
+                        self.n_i[i] -= 1
+                        self.n_i[-2]  += 1
+                        self.pq.append(i) # keep track of which trimer it came from
+                        print("i = {} -> pq".format(i), file=self.output)
+                    if (q > 1 and q < self.max_neighbours + 1):
+                        # hop to neighbour
+                        nn = self.aggregate.trimers[i].get_neighbours()[q - 1].index
+                        print(q, i, nn,
+                                [self.aggregate.trimers[i].get_neighbours()[p].index 
+                                for p in range(len(
+                                self.aggregate.trimers[i].get_neighbours()))], 
+                                file=self.output)
+                        print("neighbour: {} to {}".format(i, nn), file=self.output)
+                        self.n_i[i] -= 1
+                        self.n_i[nn] += 1
+                elif i == self.n_sites - 2:
+                    '''
+                    pre-quencher
+                    note that excitations can be created here, too
+                    '''
+                    # if (q == 0):
+                        # print("nothing")
+                    if (q == 1):
+                        self.n_i[i] += 1
+                        self.n_current += 1
+                        print("generation on pq", file=self.output)
+                        # choose a random trimer for it to hop to
+                        choice = self.rng.integers(low=0, high=self.n_sites - 2)
+                        self.pq.append(choice)
+                    if (q == len(rates) - 4):
+                        # hop back to pool
+                        # excitations on the pre-quencher are indistinguishable:
+                        # pick one at random from previous_pool and put it there
+                        # with previous_pool.pop() it'd be first in first out
+                        choice = self.rng.integers(low=0, high=len(self.pq))
+                        print("pq->po: choice {} of {}, previous = {}".format(
+                            choice, len(self.pq), self.pq[choice]),
                             file=self.output)
-                    print("neighbour: {} to {}".format(ind, nn), file=self.output)
-                    self.n_i[ind] -= 1
-                    self.n_i[nn] += 1
-                    self.currently_occupied[i] = nn
-            elif ind == self.n_sites - 2:
-                '''
-                NB: no annihilation here - in principle every trimer is
-                connected to a pre-quencher and through that to a quencher;
-                this is just a convenient way of bookkeeping
-                '''
-                # pre-quencher
-                (q, k_tot) = select_process(self.transitions[ind], rand1)
-                if (q == 0):
-                    # hop back to pool
-                    # excitations on the pre-quencher are indistinguishable:
-                    # pick one at random from previous_pool and put it there
-                    # with previous_pool.pop() it'd be first in first out
-                    pp = self.previous_pool[np.where(self.previous_pool >= 0)]
-                    choice = self.rng.integers(low=0, high=len(pp))
-                    self.n_i[ind] -= 1
-                    self.n_i[pp[choice]] += 1
-                    self.currently_occupied[i] = pp[choice]
-                    self.previous_pool[i] = -1
-                    print("pq->po: ind {}, choice {}, previous pool = {}".format(
-                        ind, choice, self.previous_pool), file=self.output)
-                    print("pq->po after delete: previous pool = {}".format(
-                        self.previous_pool), file=self.output)
-                elif (q == 1):
-                    # hop to quencher
-                    print("pq->q", file=self.output)
-                    self.n_i[ind] -= 1
-                    self.n_i[-1] = 1
-                    self.currently_occupied[i] = self.n_sites - 1
-                elif (q == 2):
-                    # decay
-                    print("pq decay", file=self.output)
-                    self.n_i[ind] -= 1
-                    self.currently_occupied[i] = -1
-                    self.n_current -= 1
-                    self.previous_pool[i] = -1
-                    print("previous pool = {}".format(self.previous_pool)
-                            , file=self.output)
-                    pop_loss[2] = True
-            elif ind == self.n_sites - 1:
-                # quencher
-                (q, k_tot) = select_process(self.transitions[ind], rand1)
-                if (q == 0):
-                    # hop back to pre-quencher
-                    print("q->pq", file=self.output)
-                    self.n_i[ind] -= 1
-                    self.n_i[-2] += 1
-                elif (q == 1):
-                    # decay
-                    print("q decay", file=self.output)
-                    self.n_i[ind] -= 1
-                    self.n_current -= 1
-                    self.previous_pool[i] = -1
-                    self.currently_occupied[i] = -1
-                    print("previous pool = {}".format(self.previous_pool),
-                            file=self.output)
-                    pop_loss[3] = True
-            # i think this is correct???? need to figure out
-            self.t -= 1./ (k_tot) * np.log(rand2)
-            self.ti.append(self.t)
-            if any(pop_loss):
-                # add this time to the relevant stat
-                # we only do one move at a time, so only one of pop_loss
-                # can be true at any one time; hence it's safe to do [0][0]
-                # self.loss_times[np.nonzero(pop_loss)[0][0]].append(self.t)
-                dt = np.nonzero(pop_loss)[0][0]
-                print("dt = {}".format(dt), file=self.output)
-                print("loss time = {}".format(self.t), file=self.output)
-                self.loss_times[self.n_current] = self.t
-                self.decay_type[self.n_current] = dt
-                # zero the time to get time between decays!
-                self.t = 0.
-        return
+                        self.n_i[i] -= 1
+                        self.n_i[self.pq[choice]] += 1
+                        self.pq.remove(choice)
+                        print("pq->po after delete: pq = {}".format(
+                            self.pq), file=self.output)
+                    elif (q == len(rates) - 3):
+                        # hop to quencher
+                        print("pq->q", file=self.output)
+                        choice = self.rng.integers(low=0, high=len(self.pq))
+                        self.n_i[i] -= 1
+                        self.n_i[-1] += 1
+                        self.q.append(self.pq[choice])
+                        self.pq.remove(choice)
+                    elif (q == len(rates) - 2):
+                        # decay
+                        print("pq decay", file=self.output)
+                        choice = self.rng.integers(low=0, high=len(self.pq))
+                        self.n_i[i] -= 1
+                        print("previous = {}".format(self.pq[choice]), 
+                                file=self.output)
+                        self.pq.remove(choice)
+                        pop_loss[2] = True
+                    elif (q == len(rates) - 1):
+                        # annihilation
+                        print("pq ann", file=self.output)
+                        choice = self.rng.integers(low=0, high=len(self.pq))
+                        self.n_i[i] -= 1
+                        print("previous = {}".format(self.pq[choice]), 
+                                file=self.output)
+                        self.pq.remove(choice)
+                        pop_loss[0] = True
+                elif i == self.n_sites - 1:
+                    '''
+                    quencher
+                    we can generate excitations here too in principle
+                    '''
+                    if (q == 0):
+                        print("nothing")
+                    if (q == 1):
+                        self.n_i[i] += 1
+                        self.n_current += 1
+                        print("generation on q", file=self.output)
+                        choice = self.rng.integers(low=0, high=self.n_sites - 2)
+                        self.q.append(choice)
+                    if (q == len(rates) - 3):
+                        # hop back to pre-quencher
+                        print("q->pq", file=self.output)
+                        choice = self.rng.integers(low=0, high=len(self.q))
+                        self.n_i[i] -= 1
+                        self.n_i[-2] += 1
+                        self.pq.append(self.q[choice])
+                        self.q.remove(choice)
+                    elif (q == len(rates) - 2):
+                        # decay
+                        print("q decay, n = {}".format(self.n_i[i]), file=self.output)
+                        choice = self.rng.integers(low=0, high=len(self.q))
+                        self.n_i[i] -= 1
+                        self.q.remove(choice)
+                        print("previous = {}".format(self.previous_pool),
+                                file=self.output)
+                        pop_loss[3] = True
+                    elif (q == len(rates) - 1):
+                        # annihilation
+                        print("q ann", file=self.output)
+                        choice = self.rng.integers(low=0, high=len(self.q))
+                        self.n_i[i] -= 1
+                        print("previous = {}".format(self.q[choice]), 
+                                file=self.output)
+                        self.q.remove(choice)
+                        pop_loss[0] = True
+                # i think this is correct???? need to figure out
+                # if (j == 0):
+                # print("k_tot", k_tot, rand2, (-1./(k_tot)) * np.log(rand2))
+                self.t -= 1./ (k_tot) * np.log(rand2)
+                self.t_tot += self.t
+                if any(pop_loss):
+                    # add this time to the relevant stat
+                    # we only do one move at a time, so only one of pop_loss
+                    # can be true at any one time; hence it's safe to do [0][0]
+                    dt = np.nonzero(pop_loss)[0][0]
+                    print("dt = {}".format(dt), file=self.output)
+                    print("loss time = {}".format(self.t), file=self.output)
+                    self.loss_times.append(self.t)
+                    self.decay_type.append(dt)
+                    # zero the time to get time between decays!
+                    self.t = 0.
+            else:
+                print("all rates zero!", file=self.output)
+                continue
+        return 0
 
     def draw(self, filename):
         import cv2
@@ -437,34 +410,49 @@ class Iteration():
                 font, 0.75, (255, 255, 255), 2)
         cv2.imwrite(filename, img)
 
-def select_process(k_p, rand):
-    '''
-    BKL algorithm for KMC.
-    choose which configuration to jump to given a set of transition rates
-    to those configurations from the current one, and a random number in [0,1].
-    '''
-    k_p_s = np.cumsum(k_p)
-    k_tot = k_p_s[-1]
-    i = 0
-    process = 0
-    # the check here that k_p_s[i] > k_p_s[i - 1] allows for
-    # zeroes in the rates without picking spurious processes
-    while rand * k_tot > k_p_s[i]:
-        i += 1
-        if k_p_s[i] > k_p_s[i - 1]:
-            process += 1
-    return (process, k_tot)
+    def update_rates(self, rates, n, t):
+        if t < 2 * self.pulse.mu:
+            # allow for nothing to happen!
+            rates[0] = 10.
+            # generation term non-zero
+            t_index = int(t)
+            ft = self.pulse.ft[t_index]
+            # σ @ 480nm \approx 1.1E-14
+            # sigma_ratio = σ_{se} / σ
+            xsec = 1.1E-14
+            sigma_ratio = 3.
+            if ((1 + sigma_ratio) * n) <= 24:
+                rates[1] = xsec * self.fluence * ft * \
+                (24 - (1 + sigma_ratio) * n)
+                # xsec * fluence is the average number we expect
+                # one trimer to absorb over the whole pulse, so
+                # xsec * fluence / 2 * mu should give the rate
+                # per photon?
+                # rates[1] = (xsec * self.fluence / 2 * self.pulse.mu) \
+                #         * ((24 - (1 + sigma_ratio) * n) / 24.)
+        for k in range(2, len(rates) - 1):
+            rates[k] *= n # account for number of excitations
+        ann_fac = n * (n - 1) / 2.
+        rates[-1] *= ann_fac
+        return rates
 
-def estimate_posterior_mean(loss_times):
-    lambda_i = []
-    for k_i in loss_times:
-        k_i = k_i[k_i > 0.].flatten()
-        if len(k_i) > 0:
-            l = 1./len((k_i.flatten())) * np.sum(k_i.flatten())
-        else:
-            l = np.nan
-        lambda_i.append(l)
-    return lambda_i
+    def bkl(self, k_p, rand):
+        '''
+        BKL algorithm for KMC.
+        choose which configuration to jump to given a set of transition rates
+        to those configurations from the current one, and a random number in [0,1].
+        '''
+        k_p_s = np.cumsum(k_p)
+        k_tot = k_p_s[-1]
+        i = 0
+        process = 0
+        # the check here that k_p_s[i] > k_p_s[i - 1] allows for
+        # zeroes in the rates without picking spurious processes
+        while rand * k_tot > k_p_s[i]:
+            i += 1
+            if k_p_s[i] > k_p_s[i - 1]:
+                process += 1
+        return (i, k_tot)
 
 def histogram(data, filename, binwidth=25.):
     '''
@@ -511,14 +499,22 @@ if __name__ == "__main__":
     # annihilation, pool decay, pq decay, q decay
     model_dict = {
      'lut_eet': Model(20., 3800., 3800., 14., 
-         7., 1., 20., np.inf, 48., [False, True, True, False]),
+         7., 1., 20., np.inf, 48., [False, True, True, False], True, True),
      'schlau_cohen': Model(20., 3800., 3800., 14., 
-         7., 1., 0.4, 0.4, 48., [False, True, True, False])
+         7., 1., 0.4, 0.4, 48., [False, True, True, False], True, True)
      }
     model_key = 'lut_eet'
     model = model_dict[model_key]
     mono_tau = []
     bi_tau = []
+    pulse = Pulse(fwhm=50., mu=100.)
+    for fluence in fluences:
+        sj = pulse.ft * 1.1E-14 * fluence
+        print("Integral over pulse = {}".format(np.sum(sj)))
+        plt.plot(sj, label='{:8.3e}'.format(fluence))
+
+    plt.legend()
+    plt.savefig("out/fluences.pdf") 
 
     for fluence in fluences:
         print("Fluence = {:4.2e}, n_iterations = {:d}".format(
@@ -544,10 +540,10 @@ if __name__ == "__main__":
         for i in range(n_iterations):
             verbose = False
             emissions = []
-            it = Iteration(agg, model, i,
+            it = Iteration(agg, model, pulse, i,
                     rho_quenchers, 0, fluence, verbose=verbose)
-            n_es.append(it.n_e)
-            for k in range(it.n_e):
+            n_es.append(len(it.loss_times))
+            for k in range(len(it.loss_times)):
                 print("{:1.5e} {:1d}".format(it.loss_times[k], it.decay_type[k]), 
                         file=decay_file)
                 if model.emissive[it.decay_type[k]] is True:

@@ -83,7 +83,7 @@ if __name__ == "__main__":
         decay_file     = open(decay_filename, mode='w')
         emissions_file = open(emission_filename, mode='w')
         for i in range(n_iterations):
-            verbose = False
+            verbose = True
             emissions = []
             it = Iteration(agg, model, pulse, i,
                     rho_quenchers, 0, fluence, verbose=verbose)

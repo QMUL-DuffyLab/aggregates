@@ -68,7 +68,8 @@ class Iteration():
         self.n_i = np.zeros(self.n_sites, dtype=np.uint8)
         self.quenchers = np.full(len(self.aggregate.trimers), False, dtype=bool)
         self.quencher_setup(self.rho_quenchers)
-        self.transitions = self.transition_calc()
+        self.base_rates = self.transition_calc()
+        self.rates = self.base_rates.copy()
         self.pq = []
         self.q = []
         self.t = 0.
@@ -78,6 +79,9 @@ class Iteration():
         # four ways to lose population: annihilation, decay from a
         # chl pool (trimer), decay from pre-quencher, decay from quencher
         self.decay_type = []
+        # initialise the rates!
+        for i in range(self.n_sites):
+            self.update_rates(i, self.n_i[i], self.t_tot)
         if seed == 0:
             self.draw("frames/init_{:03d}.jpg".format(seed))
         if self.n_st > 0:
@@ -90,8 +94,14 @@ class Iteration():
         else:
             i = 0
             res = 0
+            print("=== MC START ===")
             while self.t_tot < 2. * self.pulse.mu:
                 self.mc_step(1.)
+            print("=== MC END ===")
+            print(self.n_i)
+            for i in range(self.n_sites):
+                self.update_rates(i, self.n_i[i], self.t_tot)
+            print("=== KMC START ===")
             while res == 0:
                 res = self.kmc_step()
                 i += 1
@@ -127,10 +137,10 @@ class Iteration():
         '''
         self.max_neighbours = np.max(np.fromiter((len(x.get_neighbours()) 
                      for x in self.aggregate.trimers), int))
-        self.transitions = np.zeros((self.n_sites, self.max_neighbours + 5),\
+        self.base_rates = np.zeros((self.n_sites, self.max_neighbours + 5),\
                 dtype=float)
         for i in range(self.n_sites):
-            t = self.transitions[i].copy()
+            t = self.base_rates[i].copy()
             # first element is null rate, second is generation
             if i < self.n_sites - 2:
                 # trimer (pool)
@@ -144,30 +154,34 @@ class Iteration():
                 t[self.max_neighbours + 3] = self.model.g_pool
                 t[self.max_neighbours + 4] = self.model.k_ann
             elif i == self.n_sites - 2:
+                if (self.rho_quenchers != 0):
                 # pre-quencher
-                t[self.max_neighbours + 1] = self.model.k_pq_po
-                t[self.max_neighbours + 2] = self.model.k_pq_q
-                t[self.max_neighbours + 3] = self.model.g_pq
-                t[self.max_neighbours + 4] = self.model.k_ann
+                    t[self.max_neighbours + 1] = self.model.k_pq_po
+                    t[self.max_neighbours + 2] = self.model.k_pq_q
+                    t[self.max_neighbours + 3] = self.model.g_pq
+                    t[self.max_neighbours + 4] = self.model.k_ann
             elif i == self.n_sites - 1:
                 # quencher
-                t[self.max_neighbours + 2] = self.model.k_q_pq
-                t[self.max_neighbours + 3] = self.model.g_q
-                t[self.max_neighbours + 4] = self.model.k_ann
-            self.transitions[i] = t
-            print(i, self.transitions[i], file=self.output)
-        return self.transitions
+                if (self.rho_quenchers != 0):
+                    t[self.max_neighbours + 2] = self.model.k_q_pq
+                    t[self.max_neighbours + 3] = self.model.g_q
+                    t[self.max_neighbours + 4] = self.model.k_ann
+            self.base_rates[i] = t
+            # print(i, self.base_rates[i], file=self.output)
+        return self.base_rates
 
-    def update_rates(self, rates, index, n, t):
+    def update_rates(self, index, n, t):
         '''
         the base set of rates calculated in transition_calc are actually
         population-dependent for the most part; photon absorption is also
         time-dependent. this function takes the time and the population
         and updates the rates for a given trimer accordingly
+        NB: for speed, it'd be good to update the cumulative set of rates
+        here as well, then we don't have to do np.cumsum() every time
         '''
+        # if n = 0 the rates will go to zero and stay there - prevent this
+        self.rates[index] = self.base_rates[index].copy()
         if t < 2 * self.pulse.mu:
-            # allow for nothing to happen!
-            rates[0] = 0.
             # generation term non-zero
             t_index = int(t)
             ft = self.pulse.ft[t_index]
@@ -181,27 +195,33 @@ class Iteration():
                 over the whole pulse equals the average number
                 of absorbed photons, per trimer.
                 '''
-                rates[1] = xsec * self.fluence * ft * \
+                self.rates[index][1] = xsec * self.fluence * ft * \
                 ((24 - (1 + sigma_ratio) * n) / 24.)
-        for k in range(2, len(rates) - 1):
-            rates[k] *= n # account for number of excitations
+        for k in range(2, len(self.rates[index]) - 1):
+            self.rates[index][k] *= n # account for number of excitations
         '''
         annihilation can happen on the pre-quencher or quencher,
         in principle. but only if they're on the same trimer!
-        check this here
+        check this here. this should actually sum over every count
+        larger than 1 and multiply by all the factors, i think
         '''
         if index == self.n_sites - 2:
-            (uniques, counts) = np.unique(self.pq, return_counts=True)
-            n_max = np.max(counts)
+            if len(self.pq) > 0:
+                (uniques, counts) = np.unique(self.pq, return_counts=True)
+                n_max = np.max(counts)
+            else:
+                n_max = 0
             ann_fac = n_max * (n_max - 1) / 2.
         elif index == self.n_sites - 1:
-            (uniques, counts) = np.unique(self.q, return_counts=True)
-            n_max = np.max(counts)
+            if len(self.q) > 0:
+                (uniques, counts) = np.unique(self.q, return_counts=True)
+                n_max = np.max(counts)
+            else:
+                n_max = 0
             ann_fac = n_max * (n_max - 1) / 2.
         else:
             ann_fac = n * (n - 1) / 2.
-        rates[-1] *= ann_fac
-        return rates
+        self.rates[index][-1] *= ann_fac
 
     def move(self, i, q, rates, pop_loss):
         '''
@@ -223,6 +243,7 @@ class Iteration():
                 # generation
                 self.n_i[i] += 1
                 self.n_current += 1
+                self.update_rates(i, self.n_i[i], self.t_tot)
                 print("generation on {}".format(i), file=self.output)
             if (q == len(rates) - 1):
                 # annihilation
@@ -230,6 +251,7 @@ class Iteration():
                         file=self.output)
                 self.n_i[i] -= 1
                 self.n_current -= 1
+                self.update_rates(i, self.n_i[i], self.t_tot)
                 pop_loss[0] = True
             if (q == len(rates) - 2):
                 # decay
@@ -237,6 +259,7 @@ class Iteration():
                         file=self.output)
                 self.n_i[i] -= 1
                 self.n_current -= 1
+                self.update_rates(i, self.n_i[i], self.t_tot)
                 pop_loss[1] = True
             if (q == len(rates) - 3):
                 # hop to pre-quencher
@@ -244,6 +267,8 @@ class Iteration():
                         file=self.output)
                 self.n_i[i] -= 1
                 self.n_i[-2]  += 1
+                self.update_rates(i, self.n_i[i], self.t_tot)
+                self.update_rates(-2, self.n_i[-2], self.t_tot)
                 self.pq.append(i) # keep track of which trimer it came from
                 print("i = {} -> pq".format(i), file=self.output)
             if (1 < q < self.max_neighbours + 1):
@@ -257,6 +282,8 @@ class Iteration():
                 print("neighbour: {} to {}".format(i, nn), file=self.output)
                 self.n_i[i] -= 1
                 self.n_i[nn] += 1
+                self.update_rates(i, self.n_i[i], self.t_tot)
+                self.update_rates(nn, self.n_i[nn], self.t_tot)
         elif i == self.n_sites - 2:
             '''
             pre-quencher
@@ -274,6 +301,7 @@ class Iteration():
                 # choose a random trimer for it to hop to
                 choice = self.rng.integers(low=0, high=self.n_sites - 2)
                 self.pq.append(choice)
+                self.update_rates(i, self.n_i[i], self.t_tot)
             if (q == len(rates) - 4):
                 # hop back to pool
                 # excitations on the pre-quencher are indistinguishable:
@@ -285,6 +313,9 @@ class Iteration():
                     file=self.output)
                 self.n_i[i] -= 1
                 self.n_i[self.pq[choice]] += 1
+                self.update_rates(i, self.n_i[i], self.t_tot)
+                self.update_rates(self.pq[choice], self.n_i[self.pq[choice]], 
+                        self.t_tot)
                 self.pq.remove(choice)
                 print("pq->po after delete: pq = {}".format(
                     self.pq), file=self.output)
@@ -295,6 +326,8 @@ class Iteration():
                 self.n_i[i] -= 1
                 self.n_i[-1] += 1
                 self.q.append(self.pq[choice])
+                self.update_rates(i, self.n_i[i], self.t_tot)
+                self.update_rates(-1, self.n_i[-1], self.t_tot)
                 self.pq.remove(choice)
             elif (q == len(rates) - 2):
                 # decay
@@ -303,6 +336,7 @@ class Iteration():
                 self.n_i[i] -= 1
                 print("previous = {}".format(self.pq[choice]), 
                         file=self.output)
+                self.update_rates(i, self.n_i[i], self.t_tot)
                 self.pq.remove(choice)
                 pop_loss[2] = True
             elif (q == len(rates) - 1):
@@ -327,6 +361,7 @@ class Iteration():
                 # on self.pq
                 index = np.where(self.pq == uniques[multiples][choice])[0][0]
                 print("previous = {}".format(self.pq[index]), file=self.output)
+                self.update_rates(i, self.n_i[i], self.t_tot)
                 self.pq.remove(index)
                 pop_loss[0] = True
         elif i == self.n_sites - 1:
@@ -341,6 +376,7 @@ class Iteration():
                 self.n_current += 1
                 print("generation on q", file=self.output)
                 choice = self.rng.integers(low=0, high=self.n_sites - 2)
+                self.update_rates(i, self.n_i[i], self.t_tot)
                 self.q.append(choice)
             if (q == len(rates) - 3):
                 # hop back to pre-quencher
@@ -348,6 +384,8 @@ class Iteration():
                 choice = self.rng.integers(low=0, high=len(self.q))
                 self.n_i[i] -= 1
                 self.n_i[-2] += 1
+                self.update_rates(i, self.n_i[i], self.t_tot)
+                self.update_rates(-2, self.n_i[-2], self.t_tot)
                 self.pq.append(self.q[choice])
                 self.q.remove(choice)
             elif (q == len(rates) - 2):
@@ -358,6 +396,7 @@ class Iteration():
                 self.n_i[i] -= 1
                 print("previous chl was = {}".format(self.q[choice]),
                         file=self.output)
+                self.update_rates(i, self.n_i[i], self.t_tot)
                 self.q.remove(choice)
                 pop_loss[3] = True
             elif (q == len(rates) - 1):
@@ -370,6 +409,7 @@ class Iteration():
                 index = np.where(self.q == uniques[multiples][choice])[0][0]
                 print("previous chl was = {}".format(self.q[index]),
                         file=self.output)
+                self.update_rates(i, self.n_i[i], self.t_tot)
                 self.q.remove(index)
                 pop_loss[0] = True
 
@@ -392,9 +432,9 @@ class Iteration():
             # annihilation, pool decay, pq decay, q decay
             pop_loss = [False for _ in range(4)]
             trimer = self.rng.integers(low=0, high=n_attempts)
-            rates = self.transitions[trimer].copy()
-            rates = self.update_rates(rates, trimer,
-                    self.n_i[trimer], self.t_tot)
+            # as the time changes, so does the generation rate - update this
+            self.update_rates(trimer, self.n_i[trimer], self.t_tot)
+            rates = self.rates[trimer]
             # print(rates)
             probs = np.fromiter((rate * np.exp(-rate * dt) for rate in rates),
                 dtype=float) # acceptance probabilities for Metropolis
@@ -404,7 +444,9 @@ class Iteration():
             rand = self.rng.random()
             if (rand < probs[proposed_move]):
                 # carry out the move
+                print("before n, rates", self.n_i[trimer], self.rates[trimer])
                 self.move(trimer, proposed_move, rates, pop_loss)
+                print("after n, rates", self.n_i[trimer], self.rates[trimer])
                 print('Move accepted. index = {:d}, p = {:f}, '\
                         'rand = {:f}, t_tot = {:6.3f}, '\
                         'n_current = {:d}'.format(proposed_move,
@@ -433,43 +475,32 @@ class Iteration():
         after the pulse we have no exciton generation - switch to
         kinetic Monte Carlo to simulate annihilations and decays
         '''
-        if self.n_current == 0 and self.t_tot > 2. * self.pulse.mu:
+        if self.n_current == 0 and self.t_tot >= 2. * self.pulse.mu:
             return -1
-        for j in range(self.n_sites):
-            pop_loss = [False for _ in range(4)]
-            if (self.rho_quenchers != 0.):
-                i = self.rng.integers(low=0, high=self.n_sites)
-            else:
-                i = self.rng.integers(low=0, high=self.n_sites - 2)
-            rand1 = self.rng.random()
-            rand2 = self.rng.random()
-            print(self.n_current, i, file=self.output)
-            n = self.n_i[i]
-            rates = self.transitions[i].copy()
-            print("before rates, n, t_tot: ", rates, self.n_i[i], self.t_tot,
+        pop_loss = [False for _ in range(4)]
+        rand1 = self.rng.random()
+        rand2 = self.rng.random()
+        if np.any(self.rates):
+            (i, q, k_tot) = self.bkl(rand1)
+            rates = self.rates[i]
+            self.move(i, q, rates, pop_loss)
+            self.t -= 1./ (k_tot) * np.log(rand2)
+            self.t_tot += self.t
+            if any(pop_loss):
+                # add this time to the relevant stat
+                # we only do one move at a time, so only one of pop_loss
+                # can be true at any one time; hence it's safe to do [0][0]
+                decay_type = np.nonzero(pop_loss)[0][0]
+                print("decay type = {}".format(decay_type),
+                        file=self.output)
+                print("loss time = {}".format(self.t), file=self.output)
+                self.loss_times.append(self.t_tot)
+                self.decay_type.append(decay_type)
+                # zero the time to get time between decays!
+                self.t = 0.
+        else:
+            print("all rates zero. n_current = {}, t_tot = {}".format(self.n_current, self.t_tot),
                     file=self.output)
-            rates = self.update_rates(rates, i, self.n_i[i], self.t_tot)
-            print("after rates: ", rates, file=self.output)
-            if np.any(rates):
-                (q, k_tot) = self.bkl(rates, rand1)
-                self.move(i, q, rates, pop_loss)
-                self.t -= 1./ (k_tot) * np.log(rand2)
-                self.t_tot += self.t
-                if any(pop_loss):
-                    # add this time to the relevant stat
-                    # we only do one move at a time, so only one of pop_loss
-                    # can be true at any one time; hence it's safe to do [0][0]
-                    decay_type = np.nonzero(pop_loss)[0][0]
-                    print("decay type = {}".format(decay_type),
-                            file=self.output)
-                    print("loss time = {}".format(self.t), file=self.output)
-                    self.loss_times.append(self.t_tot)
-                    self.decay_type.append(decay_type)
-                    # zero the time to get time between decays!
-                    self.t = 0.
-            else:
-                print("all rates zero!", file=self.output)
-                continue
         return 0
 
     def draw(self, filename):
@@ -535,21 +566,35 @@ class Iteration():
                 font, 0.75, (255, 255, 255), 2)
         cv2.imwrite(filename, img)
 
-    def bkl(self, k_p, rand):
+    def bkl(self, rand):
         '''
         BKL algorithm for KMC.
         choose which configuration to jump to given a set of transition rates
         to those configurations from the current one, and a random number in [0,1].
         '''
-        k_p_s = np.cumsum(k_p)
+        k_p_s = np.cumsum(self.rates.flatten())
         k_tot = k_p_s[-1]
         i = 0
         process = 0
         # the check here that k_p_s[i] > k_p_s[i - 1] allows for
         # zeroes in the rates without picking spurious processes
-        while rand * k_tot > k_p_s[i]:
-            i += 1
-            if k_p_s[i] > k_p_s[i - 1]:
-                process += 1
-        return (i, k_tot)
+        # while rand * k_tot > k_p_s[i]:
+        #     i += 1
+        #     if k_p_s[i] > k_p_s[i - 1]:
+        #         process = i
+        '''
+        binary search to find the correct process to execute
+        we want the first index where k_p_s[i] >= rand * k_tot
+        '''
+        l = 0
+        r = len(k_p_s) - 1
+        while l < r:
+            m = (l + r) // 2
+            if k_p_s[m] < rand * k_tot:
+                l = m + 1
+            else:
+                r = m
+        # each set of rates is the same length
+        (n, q) = np.divmod(l, len(self.base_rates[0]))
+        return (n, q, k_tot)
 

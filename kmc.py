@@ -94,14 +94,10 @@ class Iteration():
         else:
             i = 0
             res = 0
-            print("=== MC START ===")
             while self.t_tot < 2. * self.pulse.mu:
                 self.mc_step(1.)
-            print("=== MC END ===")
-            print(self.n_i)
             for i in range(self.n_sites):
                 self.update_rates(i, self.n_i[i], self.t_tot)
-            print("=== KMC START ===")
             while res == 0:
                 res = self.kmc_step()
                 i += 1
@@ -188,15 +184,16 @@ class Iteration():
             # σ @ 480nm \approx 1.1E-14
             # sigma_ratio = σ_{se} / σ
             xsec = 1.1E-14
-            sigma_ratio = 3.
-            if ((1 + sigma_ratio) * n) <= 24:
+            sigma_ratio = 1.
+            n_pigments = 24.
+            if ((1 + sigma_ratio) * n) <= n_pigments:
                 '''
                 \int ft dt = 1 so xsec * fluence * ft
                 over the whole pulse equals the average number
                 of absorbed photons, per trimer.
                 '''
                 self.rates[index][1] = xsec * self.fluence * ft * \
-                ((24 - (1 + sigma_ratio) * n) / 24.)
+                ((n_pigments - (1 + sigma_ratio) * n) / n_pigments)
         for k in range(2, len(self.rates[index]) - 1):
             self.rates[index][k] *= n # account for number of excitations
         '''
@@ -444,9 +441,9 @@ class Iteration():
             rand = self.rng.random()
             if (rand < probs[proposed_move]):
                 # carry out the move
-                print("before n, rates", self.n_i[trimer], self.rates[trimer])
+                # print("before n, rates", self.n_i[trimer], self.rates[trimer])
                 self.move(trimer, proposed_move, rates, pop_loss)
-                print("after n, rates", self.n_i[trimer], self.rates[trimer])
+                # print("after n, rates", self.n_i[trimer], self.rates[trimer])
                 print('Move accepted. index = {:d}, p = {:f}, '\
                         'rand = {:f}, t_tot = {:6.3f}, '\
                         'n_current = {:d}'.format(proposed_move,
@@ -574,14 +571,6 @@ class Iteration():
         '''
         k_p_s = np.cumsum(self.rates.flatten())
         k_tot = k_p_s[-1]
-        i = 0
-        process = 0
-        # the check here that k_p_s[i] > k_p_s[i - 1] allows for
-        # zeroes in the rates without picking spurious processes
-        # while rand * k_tot > k_p_s[i]:
-        #     i += 1
-        #     if k_p_s[i] > k_p_s[i - 1]:
-        #         process = i
         '''
         binary search to find the correct process to execute
         we want the first index where k_p_s[i] >= rand * k_tot

@@ -8,7 +8,7 @@ class Pulse():
     def __init__(self, fwhm, mu):
         self.fwhm = fwhm # ps
         self.mu = mu
-        self.sigma = fwhm / 2. * np.sqrt(2. * np.log(2.))
+        self.sigma = fwhm / (2. * np.sqrt(2. * np.log(2.)))
         self.t = np.arange(0., 2. * mu, 1.)
         self.ft = 1. / (self.sigma * np.sqrt(2. * np.pi)) * \
     np.exp(- (self.t - self.mu)**2 / (np.sqrt(2.) * self.sigma)**2)
@@ -51,7 +51,7 @@ class Iteration():
     emissive or not.
     '''
     def __init__(self, aggregate, model, pulse, seed, rho_quenchers,
-            n_steps, fluence, verbose=False, draw_frames=False):
+            n_steps, path, fluence, verbose=False, draw_frames=False):
         if verbose:
             self.output = sys.stdout
         else:
@@ -79,6 +79,7 @@ class Iteration():
         # four ways to lose population: annihilation, decay from a
         # chl pool (trimer), decay from pre-quencher, decay from quencher
         self.decay_type = []
+        self.write_output(path)
         # initialise the rates!
         for i in range(self.n_sites):
             self.update_rates(i, self.n_i[i], self.t_tot)
@@ -587,3 +588,24 @@ class Iteration():
         (n, q) = np.divmod(l, len(self.base_rates[0]))
         return (n, q, k_tot)
 
+    def write_arrays(self, path):
+        neighbours_file = "{}/neighbours.dat".format(path)
+        rates_file = "{}/base_rates.dat".format(path)
+        pulse_file = "{}/pulse.dat".format(path)
+        np.savetxt(rates_file, np.flatten(self.base_rates, order='F'))
+        neighbours = np.zeroes((self.n_sites - 2, self.max_neighbours))
+        for i in range(self.n_sites - 2):
+            for j in range(len(self.aggregate.trimers[i].get_neighbours())):
+                neighbours[i][self.max_neighbours - j] = self.aggregate.trimers[i].get_neighbours()[j]
+        np.savetxt(neighbours_file, np.flatten(neighbours, order='F'))
+        with open("{}/params".format(path), 'w') as f:
+            f.write(self.n_sites)
+            f.write(self.max_neighbours)
+            f.write(self.rho_quenchers)
+            f.write(self.fluence)
+            f.write(rates_file)
+            f.write(neighbours_file)
+
+        with open(pulse_file, 'w') as f:
+            f.write(len(self.pulse.ft))
+            f.write(self.pulse.ft)

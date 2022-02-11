@@ -72,16 +72,16 @@ def lm(no_exp, x, y, model, pulse_mu):
     return out
 
 if __name__ == "__main__":
-    fit_only = True
+    fit_only = False
     r = 5.
     lattice_type = "hex"
     n_iter = 8 # 434 trimers for honeycomb
     n_iterations = 1000
     rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
-    # fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
-    #         1.9E14, 3.22E14, 6.12E14, 9.48E14]
-    fluences = [6.12E14, 9.48E14]
+    fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
+            1.9E14, 3.22E14, 6.12E14, 9.48E14]
+    # fluences = [6.12E14, 9.48E14]
     # annihilation, pool decay, pq decay, q decay
     model_dict = {
      'lut_eet': Model(20., 3800., 3800., 14., 
@@ -121,7 +121,7 @@ if __name__ == "__main__":
                 verbose = False
                 emissions = []
                 it = Iteration(agg, model, pulse, i,
-                        rho_quenchers, 0, fluence, verbose=verbose)
+                        rho_quenchers, 0, path, fluence, verbose=verbose)
                 n_es.append(len(it.loss_times))
                 for k in range(len(it.loss_times)):
                     print("{:1.5e} {:1d}".format(it.loss_times[k], it.decay_type[k]), 
@@ -203,14 +203,13 @@ if __name__ == "__main__":
         plt.close()
 
         # matplotlib histogram - output bins and vals for lmfit
-        # emissions or all decays? who tf knows :)
         histvals, histbins = histogram(emissions,
                 "{}/{}_hist_mpl.pdf".format(path, file_prefix))
         x = histbins[:-1] + (np.diff(histbins) / 2.)
         np.savetxt("{}/{}_histvals.dat".format(path, file_prefix), histvals)
         np.savetxt("{}/{}_histbins.dat".format(path, file_prefix), histbins)
         try:
-            mono_fit = lm(1, x, histvals, model, 1./pulse.mu)
+            mono_fit = lm(1, x[np.where(x > 200.)], histvals[np.where(x > 200.)], model, 1./pulse.mu)
             print(mono_fit.fit_report())
             fig = mono_fit.plot(xlabel="Time (ps)", ylabel="Counts")
             axes = fig.gca()
@@ -229,7 +228,7 @@ if __name__ == "__main__":
             print("Mono-exponential fit failed!")
             pass
         try:
-            bi_fit = lm(2, x, histvals, model, 1./pulse.mu)
+            bi_fit = lm(2, x[np.where(x > 200.)] - 200., histvals[np.where(x > 200.)], model, 1./pulse.mu)
             print(bi_fit.fit_report())
             fig = bi_fit.plot(xlabel="Time (ps)", ylabel="Counts")
             axes = fig.gca()
@@ -250,7 +249,7 @@ if __name__ == "__main__":
             print("Bi-exponential fit failed!")
             pass
         try:
-            tri_fit = lm(3, x, histvals, model, 1./pulse.mu)
+            tri_fit = lm(3, x[np.where(x > 200.)], histvals[np.where(x > 200.)], model, 1./pulse.mu)
             print(tri_fit.fit_report())
             fig = tri_fit.plot(xlabel="Time (ps)", ylabel="Counts")
             axes = fig.gca()

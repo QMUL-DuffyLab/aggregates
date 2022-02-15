@@ -3,5 +3,6 @@
 components/*
 frames/*
 out/*
+f_iter
 __pycache__/*
 *.ipynb*

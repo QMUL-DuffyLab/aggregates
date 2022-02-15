@@ -134,35 +134,35 @@ class Iteration():
         '''
         self.max_neighbours = np.max(np.fromiter((len(x.get_neighbours()) 
                      for x in self.aggregate.trimers), int))
-        self.base_rates = np.zeros((self.n_sites, self.max_neighbours + 5),\
+        self.base_rates = np.zeros((self.n_sites, self.max_neighbours + 4),\
                 dtype=float)
         for i in range(self.n_sites):
             t = self.base_rates[i].copy()
-            # first element is null rate, second is generation
+            # first element is generation
             if i < self.n_sites - 2:
                 # trimer (pool)
                 n_neigh = len(self.aggregate.trimers[i].get_neighbours())
                 for j in range(n_neigh):
-                    t[self.max_neighbours - (j - 1)] = self.model.hop
+                    t[self.max_neighbours - (j)] = self.model.hop
                 if self.quenchers[i]:
-                    t[self.max_neighbours + 2] = self.model.k_po_pq
+                    t[self.max_neighbours + 1] = self.model.k_po_pq
                 else:
-                    t[self.max_neighbours + 2] = 0.
-                t[self.max_neighbours + 3] = self.model.g_pool
-                t[self.max_neighbours + 4] = self.model.k_ann
+                    t[self.max_neighbours + 1] = 0.
+                t[self.max_neighbours + 2] = self.model.g_pool
+                t[self.max_neighbours + 3] = self.model.k_ann
             elif i == self.n_sites - 2:
                 if (self.rho_quenchers != 0):
                 # pre-quencher
-                    t[self.max_neighbours + 1] = self.model.k_pq_po
-                    t[self.max_neighbours + 2] = self.model.k_pq_q
-                    t[self.max_neighbours + 3] = self.model.g_pq
-                    t[self.max_neighbours + 4] = self.model.k_ann
+                    t[self.max_neighbours] = self.model.k_pq_po
+                    t[self.max_neighbours + 1] = self.model.k_pq_q
+                    t[self.max_neighbours + 2] = self.model.g_pq
+                    t[self.max_neighbours + 3] = self.model.k_ann
             elif i == self.n_sites - 1:
                 # quencher
                 if (self.rho_quenchers != 0):
-                    t[self.max_neighbours + 2] = self.model.k_q_pq
-                    t[self.max_neighbours + 3] = self.model.g_q
-                    t[self.max_neighbours + 4] = self.model.k_ann
+                    t[self.max_neighbours + 1] = self.model.k_q_pq
+                    t[self.max_neighbours + 2] = self.model.g_q
+                    t[self.max_neighbours + 3] = self.model.k_ann
             self.base_rates[i] = t
             # print(i, self.base_rates[i], file=self.output)
         return self.base_rates
@@ -193,9 +193,9 @@ class Iteration():
                 over the whole pulse equals the average number
                 of absorbed photons, per trimer.
                 '''
-                self.rates[index][1] = xsec * self.fluence * ft * \
+                self.rates[index][0] = xsec * self.fluence * ft * \
                 ((n_pigments - (1 + sigma_ratio) * n) / n_pigments)
-        for k in range(2, len(self.rates[index]) - 1):
+        for k in range(1, len(self.rates[index]) - 1):
             self.rates[index][k] *= n # account for number of excitations
         '''
         annihilation can happen on the pre-quencher or quencher,
@@ -237,7 +237,7 @@ class Iteration():
             # if (q == 0):
                 # nothing
                 # print("nothing")
-            if (q == 1):
+            if (q == 0):
                 # generation
                 self.n_i[i] += 1
                 self.n_current += 1
@@ -269,7 +269,7 @@ class Iteration():
                 self.update_rates(-2, self.n_i[-2], self.t_tot)
                 self.pq.append(i) # keep track of which trimer it came from
                 print("i = {} -> pq".format(i), file=self.output)
-            if (1 < q < self.max_neighbours + 1):
+            if (0 < q < self.max_neighbours):
                 # hop to neighbour
                 nn = self.aggregate.trimers[i].get_neighbours()[q - 1].index
                 print(q, i, nn,
@@ -292,7 +292,7 @@ class Iteration():
             '''
             # if (q == 0):
                 # print("nothing")
-            if (q == 1):
+            if (q == 0):
                 self.n_i[i] += 1
                 self.n_current += 1
                 print("generation on pq", file=self.output)
@@ -369,7 +369,7 @@ class Iteration():
             '''
             # if (q == 0):
             #     print("nothing")
-            if (q == 1):
+            if (q == 0):
                 self.n_i[i] += 1
                 self.n_current += 1
                 print("generation on q", file=self.output)
@@ -586,13 +586,15 @@ class Iteration():
                 r = m
         # each set of rates is the same length
         (n, q) = np.divmod(l, len(self.base_rates[0]))
+        print("bkl: l, n, q = ", l, n, q)
         return (n, q, k_tot)
 
     def write_arrays(self, path):
         neighbours_file = "{}/neighbours.dat".format(path)
         rates_file = "{}/base_rates.dat".format(path)
         pulse_file = "{}/pulse.dat".format(path)
-        np.savetxt(rates_file, self.base_rates.flatten(order='F'))
+        # np.savetxt(rates_file, self.base_rates.flatten(order='F'))
+        np.savetxt(rates_file, self.base_rates.flatten())
         neighbours = np.zeros((self.n_sites - 2, self.max_neighbours))
         for i in range(self.n_sites - 2):
             for j in range(len(self.aggregate.trimers[i].get_neighbours())):

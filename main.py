@@ -72,7 +72,7 @@ def lm(no_exp, x, y, model, pulse_mu):
     return out
 
 if __name__ == "__main__":
-    fit_only = True
+    fit_only = False
     r = 5.
     lattice_type = "hex"
     n_iter = 8 # 434 trimers for honeycomb

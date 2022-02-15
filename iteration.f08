@@ -8,38 +8,54 @@ program iteration
   real, parameter :: pi = 3.1415926535
 
   character(len=200) :: params_file, rates_file, neighbours_file,&
-    loss_file, seed_str
+    loss_file, seed_str, cols
   logical(c_bool), dimension(:), allocatable :: quenchers
-  integer(ip) :: i, n_iter, n_sites, max_neighbours, rate_size,&
-    n_current, n_pq, n_q, seed, stat
-  integer(ip), dimension(:), allocatable :: n_i, pq, q, c_pq, c_q
+  integer(ip) :: i, j, n_iter, n_sites, max_neighbours, rate_size,&
+    n_current, n_pq, n_q, seed_size, stat, col
+  integer(ip), dimension(:), allocatable :: n_i, pq, q, c_pq, c_q, seed
   integer(ip), dimension(:), allocatable :: neighbours_temp
   integer(ip), dimension(:, :), allocatable :: neighbours
   real(dp) :: mu, fluence, t, dt, t_pulse, rho_q,&
     sigma, fwhm, start_time, end_time
   real(dp), dimension(:), allocatable :: rates, base_rates, pulse
 
+  call get_environment_variable("COLUMNS", cols)
+  ! write(col, *) cols
+  call random_seed(size=seed_size)
+  allocate(seed(seed_size))
   call get_command_argument(1, params_file)
   dt = 0.1_dp
-  t_pulse = 200.0_dp
-  n_iter = 1000
+  n_iter = 200
+  mu = 100.0_dp
+  t_pulse = 2.0_dp * mu
   open(file=params_file, unit=20)
   read(20, *) n_sites
   read(20, *) max_neighbours
   read(20, *) rho_q
   read(20, *) fluence
-  read(20, *) rates_file
-  read(20, *) neighbours_file
+  read(20, '(a)') rates_file
+  read(20, '(a)') neighbours_file
   close(20)
   rate_size = max_neighbours + 4
+  write(*, *) "n_sites = ", n_sites
+  write(*, *) "max neighbours = ", max_neighbours
+  write(*, *) "rho_q = ", rho_q
+  write(*, *) "fluence = ", fluence
+  write(*, *) "rates file = ", rates_file
+  write(*, *) "neighbours file = ", neighbours_file
+  write(loss_file, '(a, I4, a, E8.2, a)') "out/lut_eet/hex/", n_iter,&
+    "_", fluence, "_decays.dat"
 
   ! fortran's fine with 0-sized arrays so this is okay
   allocate(neighbours_temp(n_sites * max_neighbours))
   allocate(neighbours(n_sites, max_neighbours))
-  open(file=neighbours_file, unit=20)
-  read(20, *) neighbours_temp
-  close(20)
+  if (max_neighbours.ne.0) then
+    open(file=neighbours_file, unit=20)
+    read(20, *) neighbours_temp
+    close(20)
+  end if
   neighbours = reshape(neighbours_temp, (/n_sites, max_neighbours/))
+  allocate(base_rates(n_sites * rate_size))
   allocate(rates(n_sites * rate_size))
   allocate(n_i(n_sites))
   ! need a check for these arrays getting full
@@ -58,19 +74,40 @@ program iteration
   end do
 
   open(file=rates_file, unit=20)
-  read(20, *) rates
+  read(20, *) base_rates
   close(20)
+  write(*, '(a)', advance='no') "Progress: ["
   
   call cpu_time(start_time)
   open(file=loss_file, unit=20)
   do i = 1, n_iter
-    call random_seed(i)
-    call allocate_quenchers(quenchers, rho_q)
+    seed = i
+    call random_seed(put=seed)
+    write(*, *) "iteration ", i
+    ! NB - allocate_quenchers doesn't work yet - see below
+    ! call allocate_quenchers(quenchers, rho_q)
+    ! if (mod(i, col / n_iter).eq.0) then
+    !   write(*, '(a)', advance='no') '█'
+    ! end if
+    n_i = 0
+    n_current = 0
     t = 0.0_dp
-    do while (t < 200.0_dp)
+    do j = 1, n_sites
+      call update_rates(j, n_i(j), t)
+    end do
+    ! write (*, *) "MC START"
+    do while (t < t_pulse)
       call mc_step(dt, rho_q)
     end do
+    do j = 1, n_sites
+      call update_rates(j, n_i(j), t)
+    end do
     stat = 0
+    ! write (*, *) "KMC START"
+    ! do j = 1, n_sites
+    !   write (*, '(I4, I4, 10F10.6)') j, n_i(j), &
+    !     rates(((j - 1) * rate_size) + 1:((j) * rate_size))
+    ! end do
     do while (stat.eq.0)
       stat = kmc_step()
     end do
@@ -82,20 +119,37 @@ program iteration
   close(20)
   call cpu_time(end_time)
   write(*, *) "Time elapsed: ", end_time - start_time
+
+  deallocate(seed)
+  deallocate(pq)
+  deallocate(q)
+  deallocate(c_pq)
+  deallocate(c_q)
+  deallocate(n_i)
+  deallocate(rates)
+  deallocate(base_rates)
+  deallocate(neighbours)
+  deallocate(neighbours_temp)
+  deallocate(pulse)
+
   stop
 
   contains
 
-    integer(ip) function randint(upper) result(i)
+    function randint(upper) result(i)
       ! returns an integer between 1 and number for array indexing
       implicit none
       integer, intent(in) :: upper
+      integer(ip) :: i
       real :: r
       call random_number(r)
       i = ceiling(upper * r)
     end function randint
 
-    subroutine allocate_quenchers(quenchers, rho_q) bind(C)
+    ! NB - this doesn't work yet!!!!
+    ! need to include the hop_to_pq rate in base_rates and then zero it
+    ! if the trimer isn't a quencher, I guess.
+    subroutine allocate_quenchers(quenchers, rho_q)
       implicit none
       logical(C_bool), dimension(:) :: quenchers
       integer :: n_q, i, choice
@@ -110,12 +164,12 @@ program iteration
       end do
     end subroutine allocate_quenchers
 
-    subroutine count_multiples(array, c, n_mult) bind(C)
+    subroutine count_multiples(array, c, n_mult)
       ! return list of counts of elements that are > 1
       ! needs testing! after running, the array c should
       ! contain counts of each element, with counts > 1
       ! located where the first occurrence of that element
-      ! is in array
+      ! is in arrayexec format error fortran
       implicit none
       integer(ip), dimension(:), intent(in) :: array
       integer, dimension(:) :: c
@@ -140,7 +194,7 @@ program iteration
       end do
     end subroutine count_multiples
 
-    subroutine bkl(rand, ind, process, k_tot) bind(C)
+    subroutine bkl(rand, ind, process, k_tot)
       implicit none
       real(dp), intent(in) :: rand
       real(dp) :: k_tot
@@ -151,11 +205,11 @@ program iteration
       ! we need this to update the time in kinetic Monte Carlo
       k_tot = c_rates(size(rates))
       ! binary search to find correct process
-      l = 0
+      l = 1
       r = size(c_rates)
       do while (l < r) 
         m = (l + r) / 2
-        if (c_rates(m) < rand * k_tot) then
+        if (c_rates(m) < (rand * k_tot)) then
           l = m + 1
         else
           r = m
@@ -165,28 +219,35 @@ program iteration
       ! but to figure out how to update the system we need to know
       ! which trimer we're on and which process we've picked
       ind = (l / rate_size) + 1
-      process = mod(l, rate_size) + 1
+      process = mod(l, rate_size)
+      ! write(*, *) "bkl: l = ", l, ", ", rates(l - 1), rates(l), "ind = ", ind, "process = ",&
+      !   process, "k_tot = ", k_tot
+      ! write(*, *) c_rates
     end subroutine bkl
 
-    subroutine update_rates(ind, n, t) bind(C)
+    subroutine update_rates(ind, n, t)
       implicit none
-      integer(ip) :: ind, n, t_index, k, n_mult
+      integer(ip) :: ind, start, end_, n, t_index, k, n_mult
       real(dp) :: t, ft, xsec, sigma_ratio, n_pigments, ann_fac
       ! fortran slicing is inclusive on both ends and it's 1-based
       ! check this is correct!
-      rates(ind:ind + rate_size) = base_rates(ind:ind + rate_size)
-      if (t < 2.0_dp * mu) then
-        t_index = int(t)
+      start = ((ind - 1) * rate_size) + 1
+      end_ = start + rate_size - 1
+      rates(start:end_) = base_rates(start:end_)
+      ! write(*, *) "update_rates before: i = ", ind, "n = ", n,&
+      !   "rates = ", rates(start:start + rate_size)
+      sigma_ratio = 3.0_dp
+      n_pigments = 24.0_dp
+      if (t < t_pulse) then
+        t_index = int(t / dt) + 1
         ft = pulse(t_index)
         xsec = 1.1E-14
-        sigma_ratio = 3.0_dp
-        n_pigments = 24.0_dp
         if ((1 + sigma_ratio) * n <= n_pigments) then
-          rates(ind + 1) = xsec * fluence * ft * &
+          rates(start) = xsec * fluence * ft * &
             ((n_pigments - (1 + sigma_ratio) * n)/ n_pigments)
         end if
       end if
-      do k = ind, ind + rate_size - 1
+      do k = start + 1, start + rate_size - 1
         rates(k) = rates(k) * n
       end do
       if (mod(ind, rate_size) == n_sites - 1) then
@@ -199,8 +260,7 @@ program iteration
             ann_fac = ann_fac + (c_pq(k) * (c_pq(k) - 1) / 2.0_dp)
           end if
         end do
-        rates(ind + rate_size) = rates(ind + rate_size) &
-                               * ann_fac
+        rates(end_) = rates(end_) * ann_fac
       else if (mod(ind, rate_size) == n_sites) then
         ! quencher
         ann_fac = 0.
@@ -209,15 +269,16 @@ program iteration
             ann_fac = ann_fac + (c_q(k) * (c_q(k) - 1) / 2.0_dp)
           end if
         end do
-        rates(ind + rate_size) = rates(ind + rate_size) &
-                               * ann_fac
+        rates(end_) = rates(end_) * ann_fac
       else
-        rates(ind + rate_size) = rates(ind + rate_size) &
-                               * (n * (n - 1) / 2.0_dp)
+        ann_fac = (n * (n - 1)) / 2.0_dp
+        rates(end_) = rates(end_) * ann_fac
+        ! write(*, *) "update_rates after: i = ", ind, "n = ", n,&
+        !   "rates = ", rates(start:start + rate_size)
       end if
     end subroutine update_rates
 
-    subroutine move(ind, process, pop_loss) bind(C)
+    subroutine move(ind, process, pop_loss)
       implicit none
       integer(ip), intent(in) :: ind, process
       integer(ip) :: k, nn, choice, n_mult
@@ -232,7 +293,7 @@ program iteration
           n_i(ind) = n_i(ind) + 1
           n_current = n_current + 1
           call update_rates(ind, n_i(ind), t)
-          write(*, *) "generation on ", ind, ". n_current = ", n_current
+          ! write(*, *) "generation on ", ind, ". n_current = ", n_current
         else if ((process.gt.1).and.(process.lt.(rate_size - 2))) then
           ! hop to neighbour
           nn = neighbours(ind, process)
@@ -240,7 +301,7 @@ program iteration
           n_i(nn) = n_i(nn) + 1
           call update_rates(ind, n_i(ind), t)
           call update_rates(nn, n_i(nn), t)
-          write(*, *) "hop from ", ind, " to ", nn
+          ! write(*, *) "hop from ", ind, " to ", nn
         else if (process == rate_size - 2) then
           ! hop to pre-quencher
           n_i(ind) = n_i(ind) - 1
@@ -249,21 +310,21 @@ program iteration
           n_pq = n_pq + 1
           call update_rates(ind, n_i(ind), t)
           call update_rates(n_sites - 1, n_i(n_sites - 1), t)
-          write(*, *) "hop from ", ind, " to pq"
+          ! write(*, *) "hop from ", ind, " to pq"
         else if (process == rate_size - 1) then
           ! decay
           n_i(ind) = n_i(ind) - 1
           n_current = n_current - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(2) = .true.
-          write(*, *) "decay on ", ind, ". n_current = ", n_current
+          ! write(*, *) "decay on ", ind, ". n_current = ", n_current
         else if (process == rate_size) then
           ! annihilation
           n_i(ind) = n_i(ind) - 1
           n_current = n_current - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(1) = .true.
-          write(*, *) "ann on ", ind, ". n_current = ", n_current
+          ! write(*, *) "ann on ", ind, ". n_current = ", n_current
         else
           write(*, *) "Move function failed on trimer."
         end if
@@ -278,8 +339,8 @@ program iteration
           pq(n_pq + 1) = choice
           n_pq = n_pq + 1
           call update_rates(ind, n_i(ind), t)
-          write(*, *) "generation on pq. n_current = ", n_current,&
-            "n_pq = ", n_pq, "prev = ", choice
+          ! write(*, *) "generation on pq. n_current = ", n_current,&
+          !   "n_pq = ", n_pq, "prev = ", choice
         else if (process.eq.(rate_size - 3)) then
           ! hop back to pool trimer
           ! pick one at random
@@ -287,7 +348,7 @@ program iteration
           n_i(ind) = n_i(ind) - 1
           choice = randint(n_pq)
           n_i(pq(choice)) = n_i(pq(choice)) + 1
-          write(*, *) "hop from pq to ", pq(choice), "n_pq = ", n_pq - 1
+          ! write(*, *) "hop from pq to ", pq(choice), "n_pq = ", n_pq - 1
           call update_rates(pq(choice), n_i(pq(choice)), t)
           pq(choice) = pq(n_pq)
           pq(n_pq) = -1
@@ -305,7 +366,7 @@ program iteration
           n_q = n_q + 1
           call update_rates(ind, n_i(ind), t)
           call update_rates(n_sites, n_i(n_sites), t)
-          write(*, *) "hop from pq to q. n_pq = ", n_pq, " n_q = ", n_q
+          ! write(*, *) "hop from pq to q. n_pq = ", n_pq, " n_q = ", n_q
         else if (process == rate_size - 1) then
           ! decay
           n_i(ind) = n_i(ind) - 1
@@ -316,8 +377,8 @@ program iteration
           n_pq = n_pq - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(3) = .true.
-          write(*, *) "decay on ", ind, ". n_current = ",&
-            n_current, " n_pq = ", n_pq
+          ! write(*, *) "decay on ", ind, ". n_current = ",&
+          !   n_current, " n_pq = ", n_pq
         else if (process == rate_size) then
           ! annihilation
           n_i(ind) = n_i(ind) - 1
@@ -351,8 +412,8 @@ program iteration
           n_pq = n_pq - 1
           pop_loss(1) = .true.
           call update_rates(ind, n_i(ind), t)
-          write(*, *) "ann on ", ind, ". n_current = ",&
-            n_current, " n_pq = ", n_pq
+          ! write(*, *) "ann on ", ind, ". n_current = ",&
+          !   n_current, " n_pq = ", n_pq
         else
           write(*, *) "Move function failed on pre-quencher."
         end if
@@ -367,8 +428,8 @@ program iteration
           q(n_q + 1) = choice
           n_q = n_q + 1
           call update_rates(ind, n_i(ind), t)
-          write(*, *) "generation on q. n_current = ",&
-            n_current, "n_pq = ", n_q, "prev = ", choice
+          ! write(*, *) "generation on q. n_current = ",&
+          !   n_current, "n_pq = ", n_q, "prev = ", choice
         else if (process.eq.(rate_size - 2)) then
           ! hop back to pre-quencher
           n_i(ind) = n_i(ind) - 1
@@ -380,7 +441,7 @@ program iteration
           n_pq = n_pq + 1
           call update_rates(ind, n_i(ind), t)
           call update_rates(n_sites - 1, n_i(n_sites - 1), t)
-          write(*, *) "hop from q to pq. n_q = ", n_q, " n_pq = ", n_pq
+          ! write(*, *) "hop from q to pq. n_q = ", n_q, " n_pq = ", n_pq
         else if (process == rate_size - 1) then
           ! decay
           n_i(ind) = n_i(ind) - 1
@@ -391,8 +452,8 @@ program iteration
           n_q = n_q - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(3) = .true.
-          write(*, *) "decay on ", ind, ". n_current = ",&
-            n_current, " n_q = ", n_q
+          ! write(*, *) "decay on ", ind, ". n_current = ",&
+          !   n_current, " n_q = ", n_q
         else if (process == rate_size) then
           ! annihilation
           n_i(ind) = n_i(ind) - 1
@@ -420,19 +481,20 @@ program iteration
           n_q = n_q - 1
           pop_loss(1) = .true.
           call update_rates(ind, n_i(ind), t)
-          write(*, *) "ann on ", ind, ". n_current = ",&
-            n_current, " n_q = ", n_q
+          ! write(*, *) "ann on ", ind, ". n_current = ",&
+          !   n_current, " n_q = ", n_q
         end if
       end if
 
     end subroutine move
 
-    subroutine mc_step(dt, rho_q) bind(C)
+    subroutine mc_step(dt, rho_q)
       implicit none
       integer(ip) :: n_attempts, i, k,&
                      trimer, nonzero, choice
       logical(C_Bool) :: pop_loss(4)
-      real(dp) :: dt, rho_q, rand, probs(rate_size)
+      real(dp) :: dt, rho_q, rand
+      real(dp), dimension(rate_size) :: probs
       if (rho_q.gt.0.0) then
         n_attempts = n_sites
       else
@@ -445,7 +507,7 @@ program iteration
         nonzero = 0
         ! need to check this is right lol
         probs = [(rates(k) * exp(-1.0_dp * rates(k) * dt), &
-          k = (trimer - 1) * rate_size + 1, (trimer * rate_size) + 1)]
+          k = ((trimer - 1) * rate_size) + 1, (trimer * rate_size))]
         do k = 1, size(probs)
           if (probs(k).gt.0.0_dp) then
             nonzero = nonzero + 1
@@ -464,29 +526,34 @@ program iteration
         end do
         call random_number(rand)
         if (rand.lt.probs(choice)) then
+          if (choice.eq.0) then
+            write(*, *) "CHOICE = 0"
+          end if
           call move(trimer, choice, pop_loss)
+          ! write(*,*) "move accepted. trimer = ", trimer, "q = ", choice
         end if
         if (any(pop_loss)) then
           do k = 1, size(pop_loss)
             if (pop_loss(k)) then
               ! append loss time and decay type to file here!
-              write(20, '(E1.5, I1)') t, k
+              write(20, '(F10.4, a, I1)') t, " ", k
             end if
           end do
         end if
       end do
       t = t + dt
+      ! write (*,*) "MC - t = ", t
     end subroutine mc_step
 
-    integer(ip) function kmc_step() bind(C) result(res)
+    function kmc_step() result(res)
       implicit none
       real(dp) :: r1, r2, k_tot
-      integer(ip) :: k, l, i, process
+      integer(ip) :: k, l, i, process, res
       logical(C_Bool) :: pop_loss(4)
-      if ((n_current.eq.0).and.(t.gt.2.0_dp * mu)) then
+      if ((n_current.eq.0).and.(t.gt.t_pulse)) then
         ! do nothing
-        return
         res = -1
+        return
       else
         pop_loss = .false.
         call random_number(r1)
@@ -497,7 +564,7 @@ program iteration
         if (any(pop_loss)) then
           do k = 1, size(pop_loss)
             if (pop_loss(k)) then
-              write(20, '(E1.5, I1)') t, k
+              write(20, '(F10.4, a, I1)') t, " ", k
             end if
           end do
         end if

@@ -79,7 +79,7 @@ class Iteration():
         # four ways to lose population: annihilation, decay from a
         # chl pool (trimer), decay from pre-quencher, decay from quencher
         self.decay_type = []
-        self.write_output(path)
+        self.write_arrays(path)
         # initialise the rates!
         for i in range(self.n_sites):
             self.update_rates(i, self.n_i[i], self.t_tot)
@@ -592,20 +592,20 @@ class Iteration():
         neighbours_file = "{}/neighbours.dat".format(path)
         rates_file = "{}/base_rates.dat".format(path)
         pulse_file = "{}/pulse.dat".format(path)
-        np.savetxt(rates_file, np.flatten(self.base_rates, order='F'))
-        neighbours = np.zeroes((self.n_sites - 2, self.max_neighbours))
+        np.savetxt(rates_file, self.base_rates.flatten(order='F'))
+        neighbours = np.zeros((self.n_sites - 2, self.max_neighbours))
         for i in range(self.n_sites - 2):
             for j in range(len(self.aggregate.trimers[i].get_neighbours())):
                 neighbours[i][self.max_neighbours - j] = self.aggregate.trimers[i].get_neighbours()[j]
-        np.savetxt(neighbours_file, np.flatten(neighbours, order='F'))
+        np.savetxt(neighbours_file, neighbours.flatten(order='F'))
         with open("{}/params".format(path), 'w') as f:
-            f.write(self.n_sites)
-            f.write(self.max_neighbours)
-            f.write(self.rho_quenchers)
-            f.write(self.fluence)
+            f.write("{:d}\n".format(self.n_sites))
+            f.write("{:d}\n".format(self.max_neighbours))
+            f.write("{:f}\n".format(self.rho_quenchers))
+            f.write("{:f}\n".format(self.fluence))
             f.write(rates_file)
+            f.write("\n")
             f.write(neighbours_file)
-
-        with open(pulse_file, 'w') as f:
-            f.write(len(self.pulse.ft))
-            f.write(self.pulse.ft)
+        # with open(pulse_file, 'w') as f:
+        #     f.write(len(self.pulse.ft))
+        #     f.write(self.pulse.ft)

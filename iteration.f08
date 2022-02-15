@@ -10,50 +10,58 @@ program iteration
   character(len=200) :: params_file, rates_file, neighbours_file,&
     loss_file, seed_str
   logical(c_bool), dimension(:), allocatable :: quenchers
-  integer(ip) :: i, n_iter, n_sites, rate_size,&
+  integer(ip) :: i, n_iter, n_sites, max_neighbours, rate_size,&
     n_current, n_pq, n_q, seed, stat
-  integer(ip), dimension(:), allocatable :: n_i, pq, q
+  integer(ip), dimension(:), allocatable :: n_i, pq, q, c_pq, c_q
   integer(ip), dimension(:), allocatable :: neighbours_temp
   integer(ip), dimension(:, :), allocatable :: neighbours
-  real(dp) :: mu, fluence, t, dt, rho_q, sigma, fwhm
+  real(dp) :: mu, fluence, t, dt, t_pulse, rho_q,&
+    sigma, fwhm, start_time, end_time
   real(dp), dimension(:), allocatable :: rates, base_rates, pulse
 
   call get_command_argument(1, params_file)
-  stat = 0
   dt = 0.1_dp
+  t_pulse = 200.0_dp
+  n_iter = 1000
   open(file=params_file, unit=20)
   read(20, *) n_sites
-  read(20, *) rate_size
+  read(20, *) max_neighbours
   read(20, *) rho_q
   read(20, *) fluence
   read(20, *) rates_file
   read(20, *) neighbours_file
   close(20)
+  rate_size = max_neighbours + 4
 
+  ! fortran's fine with 0-sized arrays so this is okay
+  allocate(neighbours_temp(n_sites * max_neighbours))
+  allocate(neighbours(n_sites, max_neighbours))
+  open(file=neighbours_file, unit=20)
+  read(20, *) neighbours_temp
+  close(20)
+  neighbours = reshape(neighbours_temp, (/n_sites, max_neighbours/))
   allocate(rates(n_sites * rate_size))
-  allocate(neighbours_temp(n_sites * rate_size))
-  allocate(neighbours(n_sites, rate_size))
   allocate(n_i(n_sites))
-  ! need a check for this array getting full
+  ! need a check for these arrays getting full
   ! something with maxlen(pq/q)
   allocate(pq(int(1.1e-14 * fluence * n_sites)))
   allocate(q(int(1.1e-14 * fluence * n_sites)))
-  allocate(pulse(200))
+  allocate(c_pq(int(1.1e-14 * fluence * n_sites)))
+  allocate(c_q(int(1.1e-14 * fluence * n_sites)))
+
+  allocate(pulse(int(t_pulse / dt)))
   fwhm = 50.0_dp
   sigma = fwhm / (2.0_dp * (sqrt(2.0_dp * log(2.0_dp))))
-  do i = 1, 200
+  do i = 1, int(t_pulse / dt)
     pulse(i) = 1.0_dp / (sigma * sqrt(2.0_dp * pi)) * &
-      exp(-1.0_dp * (float(i) - mu)**2 / (sqrt(2.0_dp) * sigma)**2)
+      exp(-1.0_dp * ((i * dt) - mu)**2 / (sqrt(2.0_dp) * sigma)**2)
   end do
 
   open(file=rates_file, unit=20)
   read(20, *) rates
   close(20)
-  open(file=neighbours_file, unit=20)
-  read(20, *) neighbours_temp
-  close(20)
-  neighbours = reshape(neighbours_temp, (/n_sites, rate_size/))
   
+  call cpu_time(start_time)
   open(file=loss_file, unit=20)
   do i = 1, n_iter
     call random_seed(i)
@@ -62,13 +70,18 @@ program iteration
     do while (t < 200.0_dp)
       call mc_step(dt, rho_q)
     end do
+    stat = 0
     do while (stat.eq.0)
       stat = kmc_step()
     end do
     ! idea - could generate an array of bins and bin the decays as we
     ! go. then reduce this if we're parallelising
+    ! one set of bins for each decay type; the bin array index will be
+    ! something like floor(t / bin_size) + 1
   end do
   close(20)
+  call cpu_time(end_time)
+  write(*, *) "Time elapsed: ", end_time - start_time
   stop
 
   contains
@@ -157,8 +170,8 @@ program iteration
 
     subroutine update_rates(ind, n, t) bind(C)
       implicit none
-      integer(ip) :: ind, n, t_index, k
-      real(dp) :: t, ft, xsec, sigma_ratio, n_pigments
+      integer(ip) :: ind, n, t_index, k, n_mult
+      real(dp) :: t, ft, xsec, sigma_ratio, n_pigments, ann_fac
       ! fortran slicing is inclusive on both ends and it's 1-based
       ! check this is correct!
       rates(ind:ind + rate_size) = base_rates(ind:ind + rate_size)
@@ -179,8 +192,25 @@ program iteration
       if (mod(ind, rate_size) == n_sites - 1) then
         ! pre-quencher
         ! this is the hard bit in fortran tbh
+        call count_multiples(pq, c_pq, n_mult)
+        ann_fac = 0.
+        do k = 1, size(c_pq)
+          if (c_pq(k).gt.1) then
+            ann_fac = ann_fac + (c_pq(k) * (c_pq(k) - 1) / 2.0_dp)
+          end if
+        end do
+        rates(ind + rate_size) = rates(ind + rate_size) &
+                               * ann_fac
       else if (mod(ind, rate_size) == n_sites) then
         ! quencher
+        ann_fac = 0.
+        do k = 1, size(c_q)
+          if (c_q(k).gt.1) then
+            ann_fac = ann_fac + (c_q(k) * (c_q(k) - 1) / 2.0_dp)
+          end if
+        end do
+        rates(ind + rate_size) = rates(ind + rate_size) &
+                               * ann_fac
       else
         rates(ind + rate_size) = rates(ind + rate_size) &
                                * (n * (n - 1) / 2.0_dp)
@@ -191,26 +221,26 @@ program iteration
       implicit none
       integer(ip), intent(in) :: ind, process
       integer(ip) :: k, nn, choice, n_mult
-      integer(ip), dimension(:), allocatable :: c
       logical(C_Bool), intent(inout) :: pop_loss(4)
       ! pq and q should be set to the same size, roughly
       ! xsec * fluence? i guess? there's gonna have to be some
       ! check for n_pq/n_q and resizing
-      allocate(c(size(pq)))
       if (ind < n_sites - 1) then
         ! normal trimer
-        if (process == 0) then
+        if (process.eq.1) then
           ! generation
           n_i(ind) = n_i(ind) + 1
           n_current = n_current + 1
           call update_rates(ind, n_i(ind), t)
-        else if ((process.gt.0).and.(process.lt.(rate_size - 2))) then
+          write(*, *) "generation on ", ind, ". n_current = ", n_current
+        else if ((process.gt.1).and.(process.lt.(rate_size - 2))) then
           ! hop to neighbour
           nn = neighbours(ind, process)
           n_i(ind) = n_i(ind) - 1
           n_i(nn) = n_i(nn) + 1
           call update_rates(ind, n_i(ind), t)
           call update_rates(nn, n_i(nn), t)
+          write(*, *) "hop from ", ind, " to ", nn
         else if (process == rate_size - 2) then
           ! hop to pre-quencher
           n_i(ind) = n_i(ind) - 1
@@ -219,18 +249,21 @@ program iteration
           n_pq = n_pq + 1
           call update_rates(ind, n_i(ind), t)
           call update_rates(n_sites - 1, n_i(n_sites - 1), t)
+          write(*, *) "hop from ", ind, " to pq"
         else if (process == rate_size - 1) then
           ! decay
           n_i(ind) = n_i(ind) - 1
           n_current = n_current - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(2) = .true.
+          write(*, *) "decay on ", ind, ". n_current = ", n_current
         else if (process == rate_size) then
           ! annihilation
           n_i(ind) = n_i(ind) - 1
           n_current = n_current - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(1) = .true.
+          write(*, *) "ann on ", ind, ". n_current = ", n_current
         else
           write(*, *) "Move function failed on trimer."
         end if
@@ -245,6 +278,8 @@ program iteration
           pq(n_pq + 1) = choice
           n_pq = n_pq + 1
           call update_rates(ind, n_i(ind), t)
+          write(*, *) "generation on pq. n_current = ", n_current,&
+            "n_pq = ", n_pq, "prev = ", choice
         else if (process.eq.(rate_size - 3)) then
           ! hop back to pool trimer
           ! pick one at random
@@ -252,6 +287,7 @@ program iteration
           n_i(ind) = n_i(ind) - 1
           choice = randint(n_pq)
           n_i(pq(choice)) = n_i(pq(choice)) + 1
+          write(*, *) "hop from pq to ", pq(choice), "n_pq = ", n_pq - 1
           call update_rates(pq(choice), n_i(pq(choice)), t)
           pq(choice) = pq(n_pq)
           pq(n_pq) = -1
@@ -269,6 +305,7 @@ program iteration
           n_q = n_q + 1
           call update_rates(ind, n_i(ind), t)
           call update_rates(n_sites, n_i(n_sites), t)
+          write(*, *) "hop from pq to q. n_pq = ", n_pq, " n_q = ", n_q
         else if (process == rate_size - 1) then
           ! decay
           n_i(ind) = n_i(ind) - 1
@@ -279,24 +316,26 @@ program iteration
           n_pq = n_pq - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(3) = .true.
+          write(*, *) "decay on ", ind, ". n_current = ",&
+            n_current, " n_pq = ", n_pq
         else if (process == rate_size) then
           ! annihilation
           n_i(ind) = n_i(ind) - 1
           n_current = n_current - 1
           ! if it's an annihilation it must be a multiple
           ! find the multiples
-          call count_multiples(pq, c, n_mult)
+          call count_multiples(pq, c_pq, n_mult)
           nn = 0
-          do k = 1, size(c)
-            if (c(k) > 1) then
+          do k = 1, size(c_pq)
+            if (c_pq(k) > 1) then
               nn = nn + 1
             end if
           end do
           ! pick one of the multiples at random
           choice = randint(nn)
           nn = 0
-          do k = 1, size(c)
-            if (c(k) > 1) then
+          do k = 1, size(c_pq)
+            if (c_pq(k) > 1) then
               nn = nn + 1
             end if
             if (nn.eq.choice) then
@@ -312,6 +351,8 @@ program iteration
           n_pq = n_pq - 1
           pop_loss(1) = .true.
           call update_rates(ind, n_i(ind), t)
+          write(*, *) "ann on ", ind, ". n_current = ",&
+            n_current, " n_pq = ", n_pq
         else
           write(*, *) "Move function failed on pre-quencher."
         end if
@@ -326,6 +367,8 @@ program iteration
           q(n_q + 1) = choice
           n_q = n_q + 1
           call update_rates(ind, n_i(ind), t)
+          write(*, *) "generation on q. n_current = ",&
+            n_current, "n_pq = ", n_q, "prev = ", choice
         else if (process.eq.(rate_size - 2)) then
           ! hop back to pre-quencher
           n_i(ind) = n_i(ind) - 1
@@ -337,6 +380,7 @@ program iteration
           n_pq = n_pq + 1
           call update_rates(ind, n_i(ind), t)
           call update_rates(n_sites - 1, n_i(n_sites - 1), t)
+          write(*, *) "hop from q to pq. n_q = ", n_q, " n_pq = ", n_pq
         else if (process == rate_size - 1) then
           ! decay
           n_i(ind) = n_i(ind) - 1
@@ -347,21 +391,23 @@ program iteration
           n_q = n_q - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(3) = .true.
+          write(*, *) "decay on ", ind, ". n_current = ",&
+            n_current, " n_q = ", n_q
         else if (process == rate_size) then
           ! annihilation
           n_i(ind) = n_i(ind) - 1
           n_current = n_current - 1
-          call count_multiples(q, c, n_mult)
+          call count_multiples(q, c_q, n_mult)
           nn = 0
-          do k = 1, size(c)
-            if (c(k) > 1) then
+          do k = 1, size(c_q)
+            if (c_q(k) > 1) then
               nn = nn + 1
             end if
           end do
           choice = randint(nn)
           nn = 0
-          do k = 1, size(c)
-            if (c(k) > 1) then
+          do k = 1, size(c_q)
+            if (c_q(k) > 1) then
               nn = nn + 1
             end if
             if (nn.eq.choice) then
@@ -374,6 +420,8 @@ program iteration
           n_q = n_q - 1
           pop_loss(1) = .true.
           call update_rates(ind, n_i(ind), t)
+          write(*, *) "ann on ", ind, ". n_current = ",&
+            n_current, " n_q = ", n_q
         end if
       end if
 

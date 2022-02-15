@@ -72,7 +72,7 @@ def lm(no_exp, x, y, model, pulse_mu):
     return out
 
 if __name__ == "__main__":
-    fit_only = False
+    fit_only = True
     r = 5.
     lattice_type = "hex"
     n_iter = 8 # 434 trimers for honeycomb
@@ -95,6 +95,14 @@ if __name__ == "__main__":
     bi_tau = []
     tri_tau = []
     pulse = Pulse(fwhm=50., mu=100.)
+    plt.subplots()
+    for fluence in fluences:
+        plt.plot(pulse.ft * fluence, label=r'f = {:5.3e}'.format(fluence))
+    plt.grid()
+    plt.gca().set_ylabel("Intensity")
+    plt.gca().set_xlabel("Time (ps)")
+    plt.legend()
+    plt.savefig("out/pulses.pdf")
     for fluence in fluences:
         print("Fluence = {:4.2e}, n_iterations = {:d}".format(
             fluence, n_iterations))

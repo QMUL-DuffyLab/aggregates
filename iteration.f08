@@ -23,11 +23,11 @@ program iteration
   call random_seed(size=seed_size)
   allocate(seed(seed_size))
   call get_command_argument(1, params_file)
-  dt = 0.1_dp
-  n_iter = 1000
+  dt = 1.0_dp
   mu = 100.0_dp
   t_pulse = 2.0_dp * mu
   open(file=params_file, unit=20)
+  read(20, *) n_iter
   read(20, *) n_sites
   read(20, *) max_neighbours
   read(20, *) rho_q
@@ -36,14 +36,15 @@ program iteration
   read(20, '(a)') neighbours_file
   close(20)
   rate_size = max_neighbours + 4
+  write(*, *) "n_iter = ", n_iter
   write(*, *) "n_sites = ", n_sites
   write(*, *) "max neighbours = ", max_neighbours
   write(*, *) "rho_q = ", rho_q
   write(*, *) "fluence = ", fluence
   write(*, *) "rates file = ", rates_file
   write(*, *) "neighbours file = ", neighbours_file
-  write(loss_file, '(a, I4, a, E8.2, a)') "out/lut_eet/hex/", n_iter,&
-    "_", fluence, "_decays.dat"
+  write(loss_file, '(a, I4, a, F4.2, a, ES8.2, a)') "out/lut_eet/hex/",&
+    n_iter, "_", rho_q, "_", fluence, "_decays.dat"
 
   ! fortran's fine with 0-sized arrays so this is okay
   allocate(neighbours_temp(n_sites * max_neighbours))
@@ -254,8 +255,8 @@ program iteration
       ! rates has one long index representing every possible process
       ! but to figure out how to update the system we need to know
       ! which trimer we're on and which process we've picked
-      ind = (l / rate_size) + 1
-      process = mod(l, rate_size)
+      ind = ((l - 1) / rate_size) + 1
+      process = mod(l - 1, rate_size) + 1
       ! write(*, *) "bkl: l = ", l, ", ", rates(l - 1), rates(l), "ind = ", ind, "process = ",&
       !   process, "k_tot = ", k_tot
       ! write(*, *) c_rates
@@ -275,12 +276,12 @@ program iteration
       end if
       ! write(*, *) "update_rates before: i = ", ind, "n = ", n,&
       !   "rates = ", rates(start:start + rate_size)
-      sigma_ratio = 3.0_dp
+      sigma_ratio = 1.0_dp
       n_pigments = 24.0_dp
       if (t < t_pulse) then
         t_index = int(t / dt) + 1
         ft = pulse(t_index)
-        if ((t_index.lt.0).or.(t_index.gt.size(pulse))) then
+        if ((t_index.le.0).or.(t_index.gt.size(pulse))) then
           write(*, *) dt, t, int(t / dt) + 1, size(pulse), ft
         end if
         xsec = 1.1E-14
@@ -328,7 +329,7 @@ program iteration
       ! pq and q should be set to the same size, roughly
       ! xsec * fluence? i guess? there's gonna have to be some
       ! check for n_pq/n_q and resizing
-      if (ind < n_sites - 1) then
+      if (ind.lt.(n_sites - 1)) then
         ! normal trimer
         if (process.eq.1) then
           ! generation
@@ -371,7 +372,7 @@ program iteration
           n_ann(iter) = n_ann(iter) + 1
           ! write(*, *) "ann on ", ind, ". n_current = ", n_current
         else
-          write(*, *) "Move function failed on trimer."
+          write(*, *) "Move function failed on trimer.", ind, process
         end if
       else if (ind.eq.(n_sites - 1)) then
         ! pre-quencher
@@ -615,6 +616,9 @@ program iteration
         call random_number(r1)
         call random_number(r2)
         call bkl(r1, i, process, k_tot)
+        if (process.eq.0) then
+          write(*, *) "KMC - process = 0"
+        end if
         call move(i, process, pop_loss, iter)
         t = t - (1.0_dp / k_tot) * log(r2)
         if (any(pop_loss)) then

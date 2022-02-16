@@ -77,6 +77,9 @@ program iteration
   read(20, *) base_rates
   close(20)
   write(*, '(a)', advance='no') "Progress: ["
+
+  allocate(quenchers(n_sites))
+  quenchers = .false.
   
   call cpu_time(start_time)
   open(file=loss_file, unit=20)
@@ -85,7 +88,8 @@ program iteration
     call random_seed(put=seed)
     write(*, *) "iteration ", i
     ! NB - allocate_quenchers doesn't work yet - see below
-    ! call allocate_quenchers(quenchers, rho_q)
+    call allocate_quenchers(quenchers, rho_q)
+    call fix_base_rates()
     ! if (mod(i, col / n_iter).eq.0) then
     !   write(*, '(a)', advance='no') '█'
     ! end if
@@ -95,7 +99,6 @@ program iteration
     do j = 1, n_sites
       call update_rates(j, n_i(j), t)
     end do
-    ! write (*, *) "MC START"
     do while (t < t_pulse)
       call mc_step(dt, rho_q)
     end do
@@ -103,11 +106,6 @@ program iteration
       call update_rates(j, n_i(j), t)
     end do
     stat = 0
-    ! write (*, *) "KMC START"
-    ! do j = 1, n_sites
-    !   write (*, '(I4, I4, 10F10.6)') j, n_i(j), &
-    !     rates(((j - 1) * rate_size) + 1:((j) * rate_size))
-    ! end do
     do while (stat.eq.0)
       stat = kmc_step()
     end do
@@ -120,6 +118,7 @@ program iteration
   call cpu_time(end_time)
   write(*, *) "Time elapsed: ", end_time - start_time
 
+  deallocate(quenchers)
   deallocate(seed)
   deallocate(pq)
   deallocate(q)
@@ -143,7 +142,14 @@ program iteration
       integer(ip) :: i
       real :: r
       call random_number(r)
+      ! random_number can return 0; stop that
+      do while (r.eq.0.0_dp)
+        call random_number(r)
+      end do
       i = ceiling(upper * r)
+      if (i.eq.0) then
+        write(*, *) "randint returned 0!", upper, r, upper * r
+      end if
     end function randint
 
     ! NB - this doesn't work yet!!!!
@@ -153,7 +159,7 @@ program iteration
       implicit none
       logical(C_bool), dimension(:) :: quenchers
       integer :: n_q, i, choice
-      real(dp) :: rho_q
+      real(dp) :: rho_q, pq_hop
       n_q = int(size(quenchers) * rho_q)
       do i = 1, n_q
          choice = randint(size(quenchers))
@@ -163,6 +169,16 @@ program iteration
          quenchers(choice) = .true.
       end do
     end subroutine allocate_quenchers
+
+    subroutine fix_base_rates()
+      implicit none
+      integer :: i
+      do i = 1, n_sites
+        if (quenchers(i).eqv..false.) then
+          base_rates((i * rate_size) - 2) = 0.0_dp 
+        end if
+      end do
+    end subroutine fix_base_rates
 
     subroutine count_multiples(array, c, n_mult)
       ! return list of counts of elements that are > 1
@@ -234,6 +250,9 @@ program iteration
       start = ((ind - 1) * rate_size) + 1
       end_ = start + rate_size - 1
       rates(start:end_) = base_rates(start:end_)
+      if ((start.lt.0).or.(end_.gt.size(rates))) then
+        write (*,*) "update_rates: start ", start, " end, ", end_
+      end if
       ! write(*, *) "update_rates before: i = ", ind, "n = ", n,&
       !   "rates = ", rates(start:start + rate_size)
       sigma_ratio = 3.0_dp
@@ -241,6 +260,9 @@ program iteration
       if (t < t_pulse) then
         t_index = int(t / dt) + 1
         ft = pulse(t_index)
+        if ((t_index.lt.0).or.(t_index.gt.size(pulse))) then
+          write(*, *) dt, t, int(t / dt) + 1, size(pulse), ft
+        end if
         xsec = 1.1E-14
         if ((1 + sigma_ratio) * n <= n_pigments) then
           rates(start) = xsec * fluence * ft * &
@@ -525,6 +547,9 @@ program iteration
           end if
         end do
         call random_number(rand)
+        if ((choice.eq.0).or.(choice.gt.size(probs))) then
+          write(*, *) "probs/choice", probs, choice, probs(choice)
+        end if
         if (rand.lt.probs(choice)) then
           if (choice.eq.0) then
             write(*, *) "CHOICE = 0"

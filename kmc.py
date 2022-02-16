@@ -144,10 +144,10 @@ class Iteration():
                 n_neigh = len(self.aggregate.trimers[i].get_neighbours())
                 for j in range(n_neigh):
                     t[self.max_neighbours - (j)] = self.model.hop
-                if self.quenchers[i]:
-                    t[self.max_neighbours + 1] = self.model.k_po_pq
-                else:
-                    t[self.max_neighbours + 1] = 0.
+                # if self.quenchers[i]:
+                t[self.max_neighbours + 1] = self.model.k_po_pq
+                # else:
+                #     t[self.max_neighbours + 1] = 0.
                 t[self.max_neighbours + 2] = self.model.g_pool
                 t[self.max_neighbours + 3] = self.model.k_ann
             elif i == self.n_sites - 2:

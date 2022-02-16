@@ -13,19 +13,18 @@ program iteration
   integer(ip) :: i, j, n_iter, n_sites, max_neighbours, rate_size,&
     n_current, n_pq, n_q, seed_size, stat, col
   integer(ip), dimension(:), allocatable :: n_i, pq, q, c_pq, c_q, seed
-  integer(ip), dimension(:), allocatable :: neighbours_temp
+  integer(ip), dimension(:), allocatable :: neighbours_temp, n_gen,&
+    n_ann, n_po_d, n_pq_d, n_q_d
   integer(ip), dimension(:, :), allocatable :: neighbours
   real(dp) :: mu, fluence, t, dt, t_pulse, rho_q,&
     sigma, fwhm, start_time, end_time
   real(dp), dimension(:), allocatable :: rates, base_rates, pulse
 
-  call get_environment_variable("COLUMNS", cols)
-  ! write(col, *) cols
   call random_seed(size=seed_size)
   allocate(seed(seed_size))
   call get_command_argument(1, params_file)
   dt = 0.1_dp
-  n_iter = 200
+  n_iter = 1000
   mu = 100.0_dp
   t_pulse = 2.0_dp * mu
   open(file=params_file, unit=20)
@@ -64,6 +63,16 @@ program iteration
   allocate(q(int(1.1e-14 * fluence * n_sites)))
   allocate(c_pq(int(1.1e-14 * fluence * n_sites)))
   allocate(c_q(int(1.1e-14 * fluence * n_sites)))
+  allocate(n_gen(n_iter))
+  allocate(n_ann(n_iter))
+  allocate(n_po_d(n_iter))
+  allocate(n_pq_d(n_iter))
+  allocate(n_q_d(n_iter))
+  n_gen = 0
+  n_ann = 0
+  n_po_d = 0
+  n_pq_d = 0
+  n_q_d = 0
 
   allocate(pulse(int(t_pulse / dt)))
   fwhm = 50.0_dp
@@ -86,13 +95,13 @@ program iteration
   do i = 1, n_iter
     seed = i
     call random_seed(put=seed)
-    write(*, *) "iteration ", i
+    ! write(*, *) "iteration ", i
     ! NB - allocate_quenchers doesn't work yet - see below
     call allocate_quenchers(quenchers, rho_q)
     call fix_base_rates()
-    ! if (mod(i, col / n_iter).eq.0) then
-    !   write(*, '(a)', advance='no') '█'
-    ! end if
+    if (mod(i, (n_iter / 100)).eq.0) then
+      write(*, '(a)', advance='no') '█'
+    end if
     n_i = 0
     n_current = 0
     t = 0.0_dp
@@ -100,23 +109,34 @@ program iteration
       call update_rates(j, n_i(j), t)
     end do
     do while (t < t_pulse)
-      call mc_step(dt, rho_q)
+      call mc_step(dt, rho_q, i)
     end do
     do j = 1, n_sites
       call update_rates(j, n_i(j), t)
     end do
     stat = 0
     do while (stat.eq.0)
-      stat = kmc_step()
+      stat = kmc_step(i)
     end do
     ! idea - could generate an array of bins and bin the decays as we
     ! go. then reduce this if we're parallelising
     ! one set of bins for each decay type; the bin array index will be
     ! something like floor(t / bin_size) + 1
   end do
+  write(*, *) "]."
   close(20)
   call cpu_time(end_time)
   write(*, *) "Time elapsed: ", end_time - start_time
+  write(*, *) "Average number of excitations per trimer: ",&
+    float(sum(n_gen)) / (n_iter * (n_sites - 2))
+  write(*, *) "Average number of annihilations: ",&
+    float(sum(n_ann)) / (n_iter)
+  write(*, *) "Average number of pool decays: ",&
+    float(sum(n_po_d)) / (n_iter)
+  write(*, *) "Average number of pq decays: ",&
+    float(sum(n_pq_d)) / (n_iter)
+  write(*, *) "Average number of q decays: ",&
+    float(sum(n_q_d)) / (n_iter)
 
   deallocate(quenchers)
   deallocate(seed)
@@ -300,9 +320,9 @@ program iteration
       end if
     end subroutine update_rates
 
-    subroutine move(ind, process, pop_loss)
+    subroutine move(ind, process, pop_loss, iter)
       implicit none
-      integer(ip), intent(in) :: ind, process
+      integer(ip), intent(in) :: ind, process, iter
       integer(ip) :: k, nn, choice, n_mult
       logical(C_Bool), intent(inout) :: pop_loss(4)
       ! pq and q should be set to the same size, roughly
@@ -314,6 +334,7 @@ program iteration
           ! generation
           n_i(ind) = n_i(ind) + 1
           n_current = n_current + 1
+          n_gen(iter) = n_gen(iter) + 1
           call update_rates(ind, n_i(ind), t)
           ! write(*, *) "generation on ", ind, ". n_current = ", n_current
         else if ((process.gt.1).and.(process.lt.(rate_size - 2))) then
@@ -339,6 +360,7 @@ program iteration
           n_current = n_current - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(2) = .true.
+          n_po_d(iter) = n_po_d(iter) + 1
           ! write(*, *) "decay on ", ind, ". n_current = ", n_current
         else if (process == rate_size) then
           ! annihilation
@@ -346,6 +368,7 @@ program iteration
           n_current = n_current - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(1) = .true.
+          n_ann(iter) = n_ann(iter) + 1
           ! write(*, *) "ann on ", ind, ". n_current = ", n_current
         else
           write(*, *) "Move function failed on trimer."
@@ -356,6 +379,7 @@ program iteration
           ! generation
           n_i(ind) = n_i(ind) + 1
           n_current = n_current + 1
+          n_gen(i) = n_gen(i) + 1
           ! need to generate a trimer for it to hop to
           choice = randint(n_sites - 2)
           pq(n_pq + 1) = choice
@@ -399,6 +423,7 @@ program iteration
           n_pq = n_pq - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(3) = .true.
+          n_pq_d(iter) = n_pq_d(iter) + 1
           ! write(*, *) "decay on ", ind, ". n_current = ",&
           !   n_current, " n_pq = ", n_pq
         else if (process == rate_size) then
@@ -434,6 +459,7 @@ program iteration
           n_pq = n_pq - 1
           pop_loss(1) = .true.
           call update_rates(ind, n_i(ind), t)
+          n_ann(iter) = n_ann(iter) + 1
           ! write(*, *) "ann on ", ind, ". n_current = ",&
           !   n_current, " n_pq = ", n_pq
         else
@@ -445,6 +471,7 @@ program iteration
           ! generation
           n_i(ind) = n_i(ind) + 1
           n_current = n_current + 1
+          n_gen(i) = n_gen(i) + 1
           ! need to generate a trimer for it to hop to
           choice = randint(n_sites - 2)
           q(n_q + 1) = choice
@@ -474,6 +501,7 @@ program iteration
           n_q = n_q - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(3) = .true.
+          n_q_d(iter) = n_q_d(iter) + 1
           ! write(*, *) "decay on ", ind, ". n_current = ",&
           !   n_current, " n_q = ", n_q
         else if (process == rate_size) then
@@ -503,6 +531,7 @@ program iteration
           n_q = n_q - 1
           pop_loss(1) = .true.
           call update_rates(ind, n_i(ind), t)
+          n_ann(iter) = n_ann(iter) + 1
           ! write(*, *) "ann on ", ind, ". n_current = ",&
           !   n_current, " n_q = ", n_q
         end if
@@ -510,10 +539,11 @@ program iteration
 
     end subroutine move
 
-    subroutine mc_step(dt, rho_q)
+    subroutine mc_step(dt, rho_q, iter)
       implicit none
       integer(ip) :: n_attempts, i, k,&
                      trimer, nonzero, choice
+      integer(ip), intent(in) :: iter
       logical(C_Bool) :: pop_loss(4)
       real(dp) :: dt, rho_q, rand
       real(dp), dimension(rate_size) :: probs
@@ -554,7 +584,7 @@ program iteration
           if (choice.eq.0) then
             write(*, *) "CHOICE = 0"
           end if
-          call move(trimer, choice, pop_loss)
+          call move(trimer, choice, pop_loss, iter)
           ! write(*,*) "move accepted. trimer = ", trimer, "q = ", choice
         end if
         if (any(pop_loss)) then
@@ -570,9 +600,10 @@ program iteration
       ! write (*,*) "MC - t = ", t
     end subroutine mc_step
 
-    function kmc_step() result(res)
+    function kmc_step(iter) result(res)
       implicit none
       real(dp) :: r1, r2, k_tot
+      integer(ip), intent(in) :: iter
       integer(ip) :: k, l, i, process, res
       logical(C_Bool) :: pop_loss(4)
       if ((n_current.eq.0).and.(t.gt.t_pulse)) then
@@ -584,7 +615,7 @@ program iteration
         call random_number(r1)
         call random_number(r2)
         call bkl(r1, i, process, k_tot)
-        call move(i, process, pop_loss)
+        call move(i, process, pop_loss, iter)
         t = t - (1.0_dp / k_tot) * log(r2)
         if (any(pop_loss)) then
           do k = 1, size(pop_loss)

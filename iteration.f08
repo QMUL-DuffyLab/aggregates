@@ -115,10 +115,13 @@ program iteration
     do j = 1, n_sites
       call update_rates(j, n_i(j), t)
     end do
-    stat = 0
-    do while (stat.eq.0)
-      stat = kmc_step(i)
+    do while ((n_current > 0).and.(t < 15000.0_dp))
+      call mc_step(dt, rho_q, i)
     end do
+    ! stat = 0
+    ! do while (stat.eq.0)
+    !   stat = kmc_step(i)
+    ! end do
     ! idea - could generate an array of bins and bin the decays as we
     ! go. then reduce this if we're parallelising
     ! one set of bins for each decay type; the bin array index will be
@@ -289,6 +292,8 @@ program iteration
           rates(start) = xsec * fluence * ft * &
             ((n_pigments - (1 + sigma_ratio) * n)/ n_pigments)
         end if
+      else
+        rates(start) = 0.0_dp
       end if
       do k = start + 1, start + rate_size - 1
         rates(k) = rates(k) * n
@@ -566,35 +571,39 @@ program iteration
             nonzero = nonzero + 1
           end if
         end do
-        choice = randint(nonzero)
-        nonzero = 0
-        do k = 1, size(probs)
-          if (probs(k).gt.0.0_dp) then
-            nonzero = nonzero + 1
-          end if
-          if (nonzero.eq.choice) then
-            choice = k
-            exit
-          end if
-        end do
-        call random_number(rand)
-        if ((choice.eq.0).or.(choice.gt.size(probs))) then
-          write(*, *) "probs/choice", probs, choice, probs(choice)
-        end if
-        if (rand.lt.probs(choice)) then
-          if (choice.eq.0) then
-            write(*, *) "CHOICE = 0"
-          end if
-          call move(trimer, choice, pop_loss, iter)
-          ! write(*,*) "move accepted. trimer = ", trimer, "q = ", choice
-        end if
-        if (any(pop_loss)) then
-          do k = 1, size(pop_loss)
-            if (pop_loss(k)) then
-              ! append loss time and decay type to file here!
-              write(20, '(F10.4, a, I1)') t, " ", k
+        if (nonzero.eq.0) then
+          cycle
+        else
+          choice = randint(nonzero)
+          nonzero = 0
+          do k = 1, size(probs)
+            if (probs(k).gt.0.0_dp) then
+              nonzero = nonzero + 1
+            end if
+            if (nonzero.eq.choice) then
+              choice = k
+              exit
             end if
           end do
+          call random_number(rand)
+          if ((choice.eq.0).or.(choice.gt.size(probs))) then
+            write(*, *) "probs/choice", probs, choice, probs(choice)
+          end if
+          if (rand.lt.probs(choice)) then
+            if (choice.eq.0) then
+              write(*, *) "CHOICE = 0"
+            end if
+            call move(trimer, choice, pop_loss, iter)
+            ! write(*,*) "move accepted. trimer = ", trimer, "q = ", choice
+          end if
+          if (any(pop_loss)) then
+            do k = 1, size(pop_loss)
+              if (pop_loss(k)) then
+                ! append loss time and decay type to file here!
+                write(20, '(F10.4, a, I1)') t, " ", k
+              end if
+            end do
+          end if
         end if
       end do
       t = t + dt

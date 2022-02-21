@@ -78,7 +78,7 @@ if __name__ == "__main__":
     r = 5.
     lattice_type = "hex"
     n_iter = 8 # 434 trimers for honeycomb
-    n_iterations = 1000
+    n_iterations = 1500
     rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
     fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
@@ -133,54 +133,6 @@ if __name__ == "__main__":
                     rho_quenchers, n_iterations,
                     path, fluence, verbose=verbose)
             subprocess.run(['./f_iter', it.params_file], check=True)
-            # for i in range(n_iterations):
-            #     emissions = []
-            #     n_es.append(len(it.loss_times))
-            #     for k in range(len(it.loss_times)):
-            #         print("{:1.5e} {:1d}".format(it.loss_times[k], it.decay_type[k]), 
-            #                 file=decay_file)
-            #         if model.emissive[it.decay_type[k]] is True:
-            #             print("{:1.5e}".format(it.loss_times[k]), file=emissions_file)
-            #             emissions.append(it.loss_times[k])
-            #     means.append(np.mean(it.loss_times))
-            #     stddevs.append(np.std(it.loss_times))
-            #     emission_means.append(np.mean(emissions))
-            #     emission_stddevs.append(np.std(emissions))
-            #     yields.append(emission_means[-1]/means[-1])
-            #     if verbose is True:
-            #         print("Iteration {:d}".format(i))
-            #         print("=== μ, σ ===")
-            #         print(means[-1], stddevs[-1])
-            #         print("=== EMISSION μ, σ ===")
-            #         print(emission_means[-1], emission_stddevs[-1])
-            #     else:
-            #         width = os.get_terminal_size().columns - 20
-            #         print("\rProgress: [{0}{1}] {2}%".format(
-            #             '█'*int((i + 1) * width/n_iterations),
-            #             ' '*int(width - ((i + 1) * width/n_iterations)),
-            #             int((i + 1) * 100 / n_iterations)), end='')
-
-            # print() # newline after progress bar
-            # decay_file.close()
-            # emissions_file.close()
-            # print("μ, σ of means: ", np.mean(means),
-            #         np.std(means))
-            # print("μ, σ of emission means: ", np.mean(emission_means),
-            #         np.std(emission_means))
-            # print("μ, σ of excitation numbers: ", np.mean(n_es),
-            #         np.std(n_es))
-            # print("Average fraction of excited trimers ρ_exc: ",
-            #         np.mean(n_es) / len(it.aggregate.trimers))
-
-            # np.savetxt("{}/{}_total_emission_mean_std.dat".format(path, file_prefix),
-            #         [np.mean(emissions), np.std(emissions)])
-            # np.savetxt("{}/{}_n_es.dat".format(path, file_prefix), n_es)
-            # np.savetxt("{}/{}_means.dat".format(path, file_prefix), means)
-            # np.savetxt("{}/{}_stddevs.dat".format(path, file_prefix), stddevs)
-            # np.savetxt("{}/{}_emission_means.dat".format(path, 
-            #     file_prefix), emission_means)
-            # np.savetxt("{}/{}_emission_stddevs.dat".format(path, 
-            #     file_prefix), emission_stddevs)
         '''
         tau is just a straight estimation of everything
         mean of means and mean of emissive means reported separately
@@ -224,8 +176,12 @@ if __name__ == "__main__":
         x = histbins[:-1] + (np.diff(histbins) / 2.)
         np.savetxt("{}/{}_histvals.dat".format(path, file_prefix), histvals)
         np.savetxt("{}/{}_histbins.dat".format(path, file_prefix), histbins)
+
+        # x = x[np.where(x > 200.)]
+        # histvals = histvals[np.where(x > 200.)]
+        histvals = histvals / np.max(histvals)
         try:
-            mono_fit = lm(1, x[np.where(x > 200.)], histvals[np.where(x > 200.)], model, 1./pulse.mu)
+            mono_fit = lm(1, x, histvals, model, 1./pulse.mu)
             print(mono_fit.fit_report())
             fig = mono_fit.plot(xlabel="Time (ps)", ylabel="Counts")
             axes = fig.gca()
@@ -244,7 +200,7 @@ if __name__ == "__main__":
             print("Mono-exponential fit failed!")
             pass
         try:
-            bi_fit = lm(2, x[np.where(x > 200.)] - 200., histvals[np.where(x > 200.)], model, 1./pulse.mu)
+            bi_fit = lm(2, x, histvals, model, 1./pulse.mu)
             print(bi_fit.fit_report())
             fig = bi_fit.plot(xlabel="Time (ps)", ylabel="Counts")
             axes = fig.gca()
@@ -265,7 +221,7 @@ if __name__ == "__main__":
             print("Bi-exponential fit failed!")
             pass
         try:
-            tri_fit = lm(3, x[np.where(x > 200.)], histvals[np.where(x > 200.)], model, 1./pulse.mu)
+            tri_fit = lm(3, x, histvals, model, 1./pulse.mu)
             print(tri_fit.fit_report())
             fig = tri_fit.plot(xlabel="Time (ps)", ylabel="Counts")
             axes = fig.gca()

@@ -22,9 +22,9 @@ def backward(x):
 
 taus = []
 for f in fluences:
-    d = np.loadtxt("{}_{:4.2e}_means.dat".format(file_path, f))
-    m = np.mean(d)
-    err = np.std(d) / np.sqrt(1000)
+    d = np.loadtxt("{}_{:4.2e}_decays.dat".format(file_path, f))
+    m = np.mean(d[:, 0])
+    err = np.std(d[:, 0]) / np.sqrt(1000)
     print("Fluence = {:4.2e}".format(f))
     print("Total mean = {:6.2f}, standard error = {:6.2f}".format(m, err))
     taus.append([f, m, err])

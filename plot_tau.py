@@ -22,7 +22,7 @@ def backward(x):
 
 taus = []
 for f in fluences:
-    d = np.loadtxt("{}_{:4.2e}_decays.dat".format(file_path, f))
+    d = np.loadtxt("{}_{:4.2E}_decays.dat".format(file_path, f))
     m = np.mean(d[:, 0])
     err = np.std(d[:, 0]) / np.sqrt(1000)
     print("Fluence = {:4.2e}".format(f))
@@ -31,7 +31,7 @@ for f in fluences:
 
 taus = np.array(taus)
 np.savetxt("{}/taus.dat".format(os.path.dirname(file_path)), taus)
-plot_exp_fits = False
+plot_exp_fits = True
 if plot_exp_fits:
     mono_tau = np.loadtxt("{}/mono_tau.dat".format(os.path.dirname(file_path)))
     bi_tau = np.loadtxt("{}/bi_tau.dat".format(os.path.dirname(file_path)))

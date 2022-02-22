@@ -9,19 +9,21 @@ import subprocess
 from trimer import Aggregate, theoretical_aggregate
 from kmc import Pulse, Model, Iteration
 
-def histogram(data, filename, binwidth=25.):
+def histogram(data, filename, binwidth=50.):
     '''
     plot a histogram of all the emissive decays via matplotlib;
     return the set of bin values and edges so we can fit them after
     '''
     import numpy as np
     import matplotlib.pyplot as plt
+    # normalise so that the max intensity is 1
     (n, bins, patches)= plt.hist(data,
             bins=np.arange(np.min(data), np.max(data) + binwidth,
                 binwidth), histtype="step", color='C0')
     plt.gca().set_ylabel("Counts")
     plt.gca().set_xlabel("Time (ps)")
     plt.gca().set_yscale('log')
+    plt.gca().set_xlim([0.0, 10000.0])
     plt.savefig(filename)
     plt.close()
     return n, bins
@@ -87,9 +89,9 @@ if __name__ == "__main__":
     # annihilation, pool decay, pq decay, q decay
     model_dict = {
      'lut_eet': Model(20., 3800., 3800., 14., 
-         7., 1., 20., np.inf, 48., [False, True, True, False], True, True),
+         7., 1., 20., np.inf, 700., [False, True, True, False], True, True),
      'schlau_cohen': Model(20., 3800., 3800., 14., 
-         7., 1., 0.4, 0.4, 48., [False, True, True, False], True, True)
+         7., 1., 0.4, 0.4, 700., [False, True, True, False], True, True)
      }
     model_key = 'lut_eet'
     model = model_dict[model_key]
@@ -172,8 +174,9 @@ if __name__ == "__main__":
 
         # matplotlib histogram - output bins and vals for lmfit
         histvals, histbins = histogram(emissions,
-                "{}/{}_hist_mpl.pdf".format(path, file_prefix))
+                "{}/{}_emission_histogram.pdf".format(path, file_prefix))
         x = histbins[:-1] + (np.diff(histbins) / 2.)
+        histvals = histvals / np.max(histvals)
         np.savetxt("{}/{}_histvals.dat".format(path, file_prefix), histvals)
         np.savetxt("{}/{}_histbins.dat".format(path, file_prefix), histbins)
 
@@ -185,10 +188,10 @@ if __name__ == "__main__":
             print(mono_fit.fit_report())
             fig = mono_fit.plot(xlabel="Time (ps)", ylabel="Counts")
             axes = fig.gca()
-            axes.set_xscale('log')
+            # axes.set_xscale('log')
             axes.set_yscale('log')
-            axes.set_xlim((10., 1.1 * np.max(x)))
-            axes.set_ylim((0.5, 1.1 * np.max(histvals)))
+            axes.set_xlim((10., 10000.))
+            axes.set_ylim((0.01, 1.5))
             plt.grid()
             plt.savefig("{}/{}_mono.pdf".format(path, file_prefix))
             plt.close()
@@ -204,10 +207,10 @@ if __name__ == "__main__":
             print(bi_fit.fit_report())
             fig = bi_fit.plot(xlabel="Time (ps)", ylabel="Counts")
             axes = fig.gca()
-            axes.set_xscale('log')
+            # axes.set_xscale('log')
             axes.set_yscale('log')
-            axes.set_xlim((10., 1.1 * np.max(x)))
-            axes.set_ylim((0.5, 1.1 * np.max(histvals)))
+            axes.set_xlim((10., 10000.))
+            axes.set_ylim((0.01, 1.5))
             plt.grid()
             plt.savefig("{}/{}_bi.pdf".format(path, file_prefix))
             plt.close()
@@ -225,10 +228,10 @@ if __name__ == "__main__":
             print(tri_fit.fit_report())
             fig = tri_fit.plot(xlabel="Time (ps)", ylabel="Counts")
             axes = fig.gca()
-            axes.set_xscale('log')
+            # axes.set_xscale('log')
             axes.set_yscale('log')
-            axes.set_xlim((10., 1.1 * np.max(x)))
-            axes.set_ylim((0.5, 1.1 * np.max(histvals)))
+            axes.set_xlim((10., 10000.))
+            axes.set_ylim((0.01, 1.5))
             plt.grid()
             plt.savefig("{}/{}_tri.pdf".format(path, file_prefix))
             plt.close()
@@ -247,3 +250,4 @@ if __name__ == "__main__":
     np.savetxt("{}/mono_tau.dat".format(path), np.array(mono_tau))
     np.savetxt("{}/bi_tau.dat".format(path), np.array(bi_tau))
     np.savetxt("{}/tri_tau.dat".format(path), np.array(tri_tau))
+    subprocess.run(['python', 'plot_tau.py', '{}/{:d}_{:3.2f}'.format(path, n_iterations, rho_quenchers)], check=True)

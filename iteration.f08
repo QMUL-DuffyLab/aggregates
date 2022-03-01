@@ -8,30 +8,34 @@ program iteration
   real, parameter :: pi = 3.1415926535
 
   character(len=200) :: params_file, rates_file, neighbours_file,&
-    loss_file, seed_str, cols
+    loss_file, seed_str, cols, counts_file, prefix_long
+  character(len=:), allocatable :: file_path, prefix
   logical(c_bool), dimension(:), allocatable :: quenchers
   integer(ip) :: i, j, n_iter, n_sites, max_neighbours, rate_size,&
     n_current, n_pq, n_q, seed_size, stat, col
   integer(ip), dimension(:), allocatable :: n_i, pq, q, c_pq, c_q, seed
   integer(ip), dimension(:), allocatable :: neighbours_temp, n_gen,&
-    n_ann, n_po_d, n_pq_d, n_q_d
+    n_ann, n_po_d, n_pq_d, n_q_d, ann_bin, pool_bin, pq_bin, q_bin
   integer(ip), dimension(:, :), allocatable :: neighbours
   real(dp) :: mu, fluence, t, dt, t_pulse, rho_q,&
-    sigma, fwhm, start_time, end_time
-  real(dp), dimension(:), allocatable :: rates, base_rates, pulse
+    sigma, fwhm, start_time, end_time, binwidth, max_time
+  real(dp), dimension(:), allocatable :: rates, base_rates, pulse,&
+    bins
 
   call random_seed(size=seed_size)
   allocate(seed(seed_size))
   call get_command_argument(1, params_file)
   dt = 1.0_dp
-  mu = 100.0_dp
-  t_pulse = 2.0_dp * mu
   open(file=params_file, unit=20)
   read(20, *) n_iter
   read(20, *) n_sites
   read(20, *) max_neighbours
   read(20, *) rho_q
   read(20, *) fluence
+  read(20, *) mu
+  read(20, *) fwhm
+  read(20, *) binwidth
+  read(20, *) max_time
   read(20, '(a)') rates_file
   read(20, '(a)') neighbours_file
   close(20)
@@ -41,10 +45,24 @@ program iteration
   write(*, *) "max neighbours = ", max_neighbours
   write(*, *) "rho_q = ", rho_q
   write(*, *) "fluence = ", fluence
+  write(*, *) "mu = ", mu
+  write(*, *) "fwhm = ", fwhm
+  write(*, *) "binwidth = ", binwidth
+  write(*, *) "t_max = ", max_time
   write(*, *) "rates file = ", rates_file
   write(*, *) "neighbours file = ", neighbours_file
-  write(loss_file, '(a, I4, a, F4.2, a, ES8.2, a)') "out/lut_eet/hex/",&
-    n_iter, "_", rho_q, "_", fluence, "_decays.dat"
+
+  i = scan(rates_file, "/\", .true.)
+  file_path = rates_file(:i)
+  write(prefix_long, '(I4, a, F4.2, a, ES8.2, a)') n_iter, "_", rho_q,&
+    "_", fluence, "_"
+  prefix = trim(adjustl(prefix_long))
+  write(*, *) "File path = ", file_path
+  write(*, *) "Prefix = ", prefix
+  write(loss_file, '(a, a, a)') file_path,&
+    prefix, "decays.dat"
+  write(counts_file, '(a, a, a)') file_path,&
+    prefix, "counts.dat"
 
   ! fortran's fine with 0-sized arrays so this is okay
   allocate(neighbours_temp(n_sites * max_neighbours))
@@ -64,6 +82,10 @@ program iteration
   allocate(q(int(1.1e-14 * fluence * n_sites)))
   allocate(c_pq(int(1.1e-14 * fluence * n_sites)))
   allocate(c_q(int(1.1e-14 * fluence * n_sites)))
+  pq = 0
+  q = 0
+  c_pq = 0
+  c_q = 0
   allocate(n_gen(n_iter))
   allocate(n_ann(n_iter))
   allocate(n_po_d(n_iter))
@@ -75,12 +97,30 @@ program iteration
   n_pq_d = 0
   n_q_d = 0
 
+  t_pulse = 2.0_dp * mu
   allocate(pulse(int(t_pulse / dt)))
-  fwhm = 50.0_dp
+  write(*, *) t_pulse, mu
   sigma = fwhm / (2.0_dp * (sqrt(2.0_dp * log(2.0_dp))))
   do i = 1, int(t_pulse / dt)
     pulse(i) = 1.0_dp / (sigma * sqrt(2.0_dp * pi)) * &
       exp(-1.0_dp * ((i * dt) - mu)**2 / (sqrt(2.0_dp) * sigma)**2)
+  end do
+
+  ! idea - could generate an array of bins and bin the decays as we
+  ! go. then reduce this if we're parallelising
+  ! one set of bins for each decay type; the bin array index will be
+  ! something like floor(t / bin_size) + 1
+  allocate(bins(int(max_time/binwidth)))
+  allocate(ann_bin(int(max_time/binwidth)))
+  allocate(pool_bin(int(max_time/binwidth)))
+  allocate(pq_bin(int(max_time/binwidth)))
+  allocate(q_bin(int(max_time/binwidth)))
+  ann_bin = 0
+  pool_bin = 0
+  pq_bin = 0
+  q_bin = 0
+  do i = 1, size(bins)
+    bins(i) = (i - 1) * binwidth
   end do
 
   open(file=rates_file, unit=20)
@@ -93,15 +133,20 @@ program iteration
   
   call cpu_time(start_time)
   open(file=loss_file, unit=20)
-  do i = 1, n_iter
+  i = 0
+  ! keep iterating till we get a decent number of counts
+  ! do while ((maxval(pool_bin) < 10000).and.(maxval(pq_bin) < 10000)&
+  !      .and.(maxval(q_bin) < 10000.))
+  do while ((maxval(pool_bin) < 4000).and.(maxval(pq_bin) < 4000)&
+       .and.(maxval(q_bin) < 4000))
     seed = i
     call random_seed(put=seed)
-    ! write(*, *) "iteration ", i
-    ! NB - allocate_quenchers doesn't work yet - see below
     call allocate_quenchers(quenchers, rho_q)
     call fix_base_rates()
-    if (mod(i, (n_iter / 100)).eq.0) then
-      write(*, '(a)', advance='no') '█'
+    if (mod(i, 100).eq.0) then
+      ! write(*, '(a)', advance='no') '█'
+      ! write(*, *) i, maxval(pool_bin), maxval(pq_bin), maxval(q_bin)
+      write(*, *) i, sum(pool_bin), sum(pq_bin), sum(q_bin)
     end if
     n_i = 0
     n_current = 0
@@ -115,32 +160,45 @@ program iteration
     do j = 1, n_sites
       call update_rates(j, n_i(j), t)
     end do
-    do while ((n_current > 0).and.(t < 15000.0_dp))
+    do while ((n_current > 0).and.(t < max_time))
       call mc_step(dt, rho_q, i)
     end do
     ! stat = 0
     ! do while (stat.eq.0)
     !   stat = kmc_step(i)
     ! end do
-    ! idea - could generate an array of bins and bin the decays as we
-    ! go. then reduce this if we're parallelising
-    ! one set of bins for each decay type; the bin array index will be
-    ! something like floor(t / bin_size) + 1
+    i = i + 1
   end do
+
   write(*, *) "]."
   close(20)
+
+  open(file=counts_file, unit=20)
+  do j = 1, size(bins)
+    write(20, '(F8.3, 4I8)') bins(j), ann_bin(j), pool_bin(j),&
+      pq_bin(j), q_bin(j)
+  end do
+  close(20)
+
   call cpu_time(end_time)
   write(*, *) "Time elapsed: ", end_time - start_time
-  write(*, *) "Average number of excitations per trimer: ",&
-    float(sum(n_gen)) / (n_iter * (n_sites - 2))
-  write(*, *) "Average number of annihilations: ",&
-    float(sum(n_ann)) / (n_iter)
-  write(*, *) "Average number of pool decays: ",&
-    float(sum(n_po_d)) / (n_iter)
-  write(*, *) "Average number of pq decays: ",&
-    float(sum(n_pq_d)) / (n_iter)
-  write(*, *) "Average number of q decays: ",&
-    float(sum(n_q_d)) / (n_iter)
+  write(*, *) "Number of iterations: ", i
+
+  ! These don't work - we have a variable number of iterations now
+  ! bc we run till a specific max count; so can't just allocate these
+  ! with a specific length. If we need this data, we can calculate
+  ! running averages for these quantities instead, but haven't done
+  ! that yet
+  ! write(*, *) "Average number of excitations per trimer: ",&
+  !   float(sum(n_gen)) / (i * (n_sites - 2))
+  ! write(*, *) "Average number of annihilations: ",&
+  !   float(sum(n_ann)) / (i)
+  ! write(*, *) "Average number of pool decays: ",&
+  !   float(sum(n_po_d)) / (i)
+  ! write(*, *) "Average number of pq decays: ",&
+  !   float(sum(n_pq_d)) / (i)
+  ! write(*, *) "Average number of q decays: ",&
+  !   float(sum(n_q_d)) / (i)
 
   deallocate(quenchers)
   deallocate(seed)
@@ -154,6 +212,11 @@ program iteration
   deallocate(neighbours)
   deallocate(neighbours_temp)
   deallocate(pulse)
+  deallocate(bins)
+  deallocate(ann_bin)
+  deallocate(pool_bin)
+  deallocate(pq_bin)
+  deallocate(q_bin)
 
   stop
 
@@ -176,9 +239,6 @@ program iteration
       end if
     end function randint
 
-    ! NB - this doesn't work yet!!!!
-    ! need to include the hop_to_pq rate in base_rates and then zero it
-    ! if the trimer isn't a quencher, I guess.
     subroutine allocate_quenchers(quenchers, rho_q)
       implicit none
       logical(C_bool), dimension(:) :: quenchers
@@ -285,7 +345,7 @@ program iteration
         t_index = int(t / dt) + 1
         ft = pulse(t_index)
         if ((t_index.le.0).or.(t_index.gt.size(pulse))) then
-          write(*, *) dt, t, int(t / dt) + 1, size(pulse), ft
+          ! write(*, *) dt, t, int(t / dt) + 1, size(pulse), ft
         end if
         xsec = 1.1E-14
         if ((1 + sigma_ratio) * n <= n_pigments) then
@@ -340,7 +400,7 @@ program iteration
           ! generation
           n_i(ind) = n_i(ind) + 1
           n_current = n_current + 1
-          n_gen(iter) = n_gen(iter) + 1
+          ! n_gen(iter) = n_gen(iter) + 1
           call update_rates(ind, n_i(ind), t)
           ! write(*, *) "generation on ", ind, ". n_current = ", n_current
         else if ((process.gt.1).and.(process.lt.(rate_size - 2))) then
@@ -366,7 +426,7 @@ program iteration
           n_current = n_current - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(2) = .true.
-          n_po_d(iter) = n_po_d(iter) + 1
+          ! n_po_d(iter) = n_po_d(iter) + 1
           ! write(*, *) "decay on ", ind, ". n_current = ", n_current
         else if (process == rate_size) then
           ! annihilation
@@ -374,7 +434,7 @@ program iteration
           n_current = n_current - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(1) = .true.
-          n_ann(iter) = n_ann(iter) + 1
+          ! n_ann(iter) = n_ann(iter) + 1
           ! write(*, *) "ann on ", ind, ". n_current = ", n_current
         else
           write(*, *) "Move function failed on trimer.", ind, process
@@ -385,7 +445,7 @@ program iteration
           ! generation
           n_i(ind) = n_i(ind) + 1
           n_current = n_current + 1
-          n_gen(i) = n_gen(i) + 1
+          ! n_gen(i) = n_gen(i) + 1
           ! need to generate a trimer for it to hop to
           choice = randint(n_sites - 2)
           pq(n_pq + 1) = choice
@@ -429,7 +489,7 @@ program iteration
           n_pq = n_pq - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(3) = .true.
-          n_pq_d(iter) = n_pq_d(iter) + 1
+          ! n_pq_d(iter) = n_pq_d(iter) + 1
           ! write(*, *) "decay on ", ind, ". n_current = ",&
           !   n_current, " n_pq = ", n_pq
         else if (process == rate_size) then
@@ -465,7 +525,7 @@ program iteration
           n_pq = n_pq - 1
           pop_loss(1) = .true.
           call update_rates(ind, n_i(ind), t)
-          n_ann(iter) = n_ann(iter) + 1
+          ! n_ann(iter) = n_ann(iter) + 1
           ! write(*, *) "ann on ", ind, ". n_current = ",&
           !   n_current, " n_pq = ", n_pq
         else
@@ -477,7 +537,7 @@ program iteration
           ! generation
           n_i(ind) = n_i(ind) + 1
           n_current = n_current + 1
-          n_gen(i) = n_gen(i) + 1
+          ! n_gen(i) = n_gen(i) + 1
           ! need to generate a trimer for it to hop to
           choice = randint(n_sites - 2)
           q(n_q + 1) = choice
@@ -507,7 +567,7 @@ program iteration
           n_q = n_q - 1
           call update_rates(ind, n_i(ind), t)
           pop_loss(3) = .true.
-          n_q_d(iter) = n_q_d(iter) + 1
+          ! n_q_d(iter) = n_q_d(iter) + 1
           ! write(*, *) "decay on ", ind, ". n_current = ",&
           !   n_current, " n_q = ", n_q
         else if (process == rate_size) then
@@ -537,7 +597,7 @@ program iteration
           n_q = n_q - 1
           pop_loss(1) = .true.
           call update_rates(ind, n_i(ind), t)
-          n_ann(iter) = n_ann(iter) + 1
+          ! n_ann(iter) = n_ann(iter) + 1
           ! write(*, *) "ann on ", ind, ". n_current = ",&
           !   n_current, " n_q = ", n_q
         end if
@@ -597,6 +657,21 @@ program iteration
             ! write(*,*) "move accepted. trimer = ", trimer, "q = ", choice
           end if
           if (any(pop_loss)) then
+            if (pop_loss(1)) then
+              ann_bin(floor(t / binwidth) + 1) = &
+                ann_bin(floor(t / binwidth) + 1) + 1
+            else if (pop_loss(2)) then
+              pool_bin(floor(t / binwidth) + 1) = &
+                pool_bin(floor(t / binwidth) + 1) + 1
+            else if (pop_loss(3)) then
+              pq_bin(floor(t / binwidth) + 1) = &
+                pq_bin(floor(t / binwidth) + 1) + 1
+            else if (pop_loss(4)) then
+              q_bin(floor(t / binwidth) + 1) = &
+                q_bin(floor(t / binwidth) + 1) + 1
+            end if
+            ! the following just outputs all decay times and types
+            ! to a file for the python to then interpret
             do k = 1, size(pop_loss)
               if (pop_loss(k)) then
                 ! append loss time and decay type to file here!
@@ -607,7 +682,6 @@ program iteration
         end if
       end do
       t = t + dt
-      ! write (*,*) "MC - t = ", t
     end subroutine mc_step
 
     function kmc_step(iter) result(res)
@@ -631,6 +705,19 @@ program iteration
         call move(i, process, pop_loss, iter)
         t = t - (1.0_dp / k_tot) * log(r2)
         if (any(pop_loss)) then
+          if (pop_loss(1)) then
+            ann_bin(floor(t / binwidth) + 1) = &
+              ann_bin(floor(t / binwidth) + 1) + 1
+          else if (pop_loss(2)) then
+            pool_bin(floor(t / binwidth) + 1) = &
+              pool_bin(floor(t / binwidth) + 1) + 1
+          else if (pop_loss(3)) then
+            pq_bin(floor(t / binwidth) + 1) = &
+              pq_bin(floor(t / binwidth) + 1) + 1
+          else if (pop_loss(4)) then
+            q_bin(floor(t / binwidth) + 1) = &
+              q_bin(floor(t / binwidth) + 1) + 1
+          end if
           do k = 1, size(pop_loss)
             if (pop_loss(k)) then
               write(20, '(F10.4, a, I1)') t, " ", k

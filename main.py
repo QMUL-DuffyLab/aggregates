@@ -6,73 +6,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import subprocess
+from scipy import signal
+import fit
 from trimer import Aggregate, theoretical_aggregate
 from kmc import Pulse, Model, Iteration
 
-def histogram(data, filename, binwidth=50.):
-    '''
-    plot a histogram of all the emissive decays via matplotlib;
-    return the set of bin values and edges so we can fit them after
-    '''
-    import numpy as np
-    import matplotlib.pyplot as plt
-    # normalise so that the max intensity is 1
-    (n, bins, patches)= plt.hist(data,
-            bins=np.arange(np.min(data), np.max(data) + binwidth,
-                binwidth), histtype="step", color='C0')
-    plt.gca().set_ylabel("Counts")
-    plt.gca().set_xlabel("Time (ps)")
-    plt.gca().set_yscale('log')
-    plt.gca().set_xlim([0.0, 10000.0])
-    plt.savefig(filename)
-    plt.close()
-    return n, bins
-
-def saturation(x, amp, k):
-    import numpy as np
-    p = amp * (1 - np.exp(-k * x))
-    p[np.where(x > 2. / k)] = 0.
-    return p
-
-def cutexp(x, amp, k):
-    import numpy as np
-    p = amp * np.exp(-k * x)
-    # that 100 shouldn't be hardcoded lol
-    p[np.where(x < 100.)] = 0.
-    return p
-
-def lm(no_exp, x, y, model, pulse_mu):
-    from lmfit.models import ExponentialModel
-    import lmfit
-    ''' use lmfit to a mono or biexponential '''
-    if no_exp == 1:
-        exp1 = ExponentialModel(prefix='exp1')
-        pars = exp1.make_params(exp1decay=1./model.g_pool,
-                                exp1amplitude=np.max(y))
-        mod = exp1
-    if no_exp == 2:
-        exp1 = ExponentialModel(prefix='exp1')
-        pars = exp1.make_params(exp1decay=1./model.g_pool,
-                                exp1amplitude=np.max(y))
-        exp2 = ExponentialModel(prefix='exp2')
-        pars.update(exp2.make_params(exp2decay=1./model.k_ann,
-                                     exp2amplitude=np.max(y)))
-        mod = exp1 + exp2
-    if no_exp == 3:
-        # exp2 = ExponentialModel(prefix='exp2')
-        exp1 = ExponentialModel(prefix='exp1')
-        pars = exp1.make_params(exp1decay=1./model.g_pool,
-                                exp1amplitude=np.max(y))
-        exp2 = lmfit.Model(cutexp, prefix='exp2')
-        pars.update(exp2.make_params(exp2k=1./model.k_ann,
-                                     exp2amp=np.max(y)))
-        rise = lmfit.Model(saturation, prefix='rise')
-        pars.update(rise.make_params(riseamp=np.max(y),
-                                     risek=1./(2. * pulse_mu)))
-        mod = exp1 + exp2 + rise
-    init = mod.eval(pars, x=x)
-    out = mod.fit(y, pars, x=x)
-    return out
 
 if __name__ == "__main__":
     start_time = time.monotonic()
@@ -80,7 +18,7 @@ if __name__ == "__main__":
     r = 5.
     lattice_type = "hex"
     n_iter = 8 # 434 trimers for honeycomb
-    n_iterations = 1500
+    n_iterations = 1000
     rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
     fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
@@ -153,7 +91,7 @@ if __name__ == "__main__":
         NB: latex will work in column names and captions (e.g.
         in typedict below, if it were needed). just have e.g. 0: r'$ \sigma $',
         '''
-        print(emissions)
+        # print(emissions)
         decay_pd = pd.DataFrame(decays, columns=["Time (ps)", "Decay type"])
         # print(decay_pd.to_string())
         # typedict = {"Ann": 0., "Pool": 1., "PQ":, 2., "Q": 3.}
@@ -173,18 +111,35 @@ if __name__ == "__main__":
         plt.close()
 
         # matplotlib histogram - output bins and vals for lmfit
-        histvals, histbins = histogram(emissions,
+        histvals, histbins = fit.histogram(emissions,
                 "{}/{}_emission_histogram.pdf".format(path, file_prefix))
         x = histbins[:-1] + (np.diff(histbins) / 2.)
         histvals = histvals / np.max(histvals)
         np.savetxt("{}/{}_histvals.dat".format(path, file_prefix), histvals)
         np.savetxt("{}/{}_histbins.dat".format(path, file_prefix), histbins)
+        long_gauss = 1. / (pulse.sigma * np.sqrt(2. * np.pi)) * \
+            np.exp(- (x - pulse.mu)**2 \
+            / (np.sqrt(2.) * pulse.sigma)**2)
+        long_gauss = long_gauss/np.max(long_gauss)
+        conv = np.convolve(long_gauss, histvals)
+        deconv, remainder = signal.deconvolve(histvals, long_gauss)
+        print(deconv)
+        plt.plot(x, long_gauss, label='Gaussian')
+        plt.plot(x, histvals, label='histogram')
+        plt.plot(conv, label='convolution')
+        plt.gca().set_xscale('log')
+        plt.legend()
+        plt.savefig("{}/{}_conv.pdf".format(path, file_prefix))
+        plt.close()
+        plt.plot(deconv, label='deconvolution')
+        plt.savefig("{}/{}_deconv.pdf".format(path, file_prefix))
+        plt.close()
 
         # x = x[np.where(x > 200.)]
         # histvals = histvals[np.where(x > 200.)]
         histvals = histvals / np.max(histvals)
         try:
-            mono_fit = lm(1, x, histvals, model, 1./pulse.mu)
+            mono_fit = fit.lm(1, x, histvals, model, 1./pulse.mu)
             print(mono_fit.fit_report())
             fig = mono_fit.plot(xlabel="Time (ps)", ylabel="Counts")
             axes = fig.gca()
@@ -203,7 +158,7 @@ if __name__ == "__main__":
             print("Mono-exponential fit failed!")
             pass
         try:
-            bi_fit = lm(2, x, histvals, model, 1./pulse.mu)
+            bi_fit = fit.lm(2, x, histvals, model, 1./pulse.mu)
             print(bi_fit.fit_report())
             fig = bi_fit.plot(xlabel="Time (ps)", ylabel="Counts")
             axes = fig.gca()
@@ -224,7 +179,7 @@ if __name__ == "__main__":
             print("Bi-exponential fit failed!")
             pass
         try:
-            tri_fit = lm(3, x, histvals, model, 1./pulse.mu)
+            tri_fit = fit.lm(3, x, histvals, model, 1./pulse.mu)
             print(tri_fit.fit_report())
             fig = tri_fit.plot(xlabel="Time (ps)", ylabel="Counts")
             axes = fig.gca()

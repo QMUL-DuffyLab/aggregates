@@ -589,7 +589,7 @@ class Iteration():
         print("bkl: l, n, q = ", l, n, q)
         return (n, q, k_tot)
 
-    def write_arrays(self, path):
+    def write_arrays(self, path, binwidth=50., max_time=10000.):
         self.params_file = "{}/params".format(path)
         neighbours_file = "{}/neighbours.dat".format(path)
         rates_file = "{}/base_rates.dat".format(path)
@@ -607,6 +607,10 @@ class Iteration():
             f.write("{:d}\n".format(self.max_neighbours))
             f.write("{:f}\n".format(self.rho_quenchers))
             f.write("{:f}\n".format(self.fluence))
+            f.write("{:f}\n".format(self.pulse.mu))
+            f.write("{:f}\n".format(self.pulse.fwhm))
+            f.write("{:f}\n".format(binwidth))
+            f.write("{:f}\n".format(max_time))
             f.write(rates_file)
             f.write("\n")
             f.write(neighbours_file)

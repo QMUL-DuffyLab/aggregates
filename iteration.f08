@@ -12,7 +12,7 @@ program iteration
   character(len=:), allocatable :: file_path, prefix
   logical(c_bool), dimension(:), allocatable :: quenchers
   integer(ip) :: i, j, n_iter, n_sites, max_neighbours, rate_size,&
-    n_current, n_pq, n_q, seed_size, stat, col
+    n_current, n_pq, n_q, seed_size, stat, col, max_count
   integer(ip), dimension(:), allocatable :: n_i, pq, q, c_pq, c_q, seed
   integer(ip), dimension(:), allocatable :: neighbours_temp, n_gen,&
     n_ann, n_po_d, n_pq_d, n_q_d, ann_bin, pool_bin, pq_bin, q_bin
@@ -25,7 +25,6 @@ program iteration
   call random_seed(size=seed_size)
   allocate(seed(seed_size))
   call get_command_argument(1, params_file)
-  dt = 1.0_dp
   open(file=params_file, unit=20)
   read(20, *) n_iter
   read(20, *) n_sites
@@ -97,6 +96,7 @@ program iteration
   n_pq_d = 0
   n_q_d = 0
 
+  dt = 0.1_dp
   t_pulse = 2.0_dp * mu
   allocate(pulse(int(t_pulse / dt)))
   write(*, *) t_pulse, mu
@@ -137,16 +137,17 @@ program iteration
   ! keep iterating till we get a decent number of counts
   ! do while ((maxval(pool_bin) < 10000).and.(maxval(pq_bin) < 10000)&
   !      .and.(maxval(q_bin) < 10000.))
-  do while ((maxval(pool_bin) < 4000).and.(maxval(pq_bin) < 4000)&
-       .and.(maxval(q_bin) < 4000))
+  max_count = 5000
+  do while ((maxval(pool_bin) < max_count).and.(maxval(pq_bin) < max_count)&
+       .and.(maxval(q_bin) < max_count))
     seed = i
     call random_seed(put=seed)
     call allocate_quenchers(quenchers, rho_q)
     call fix_base_rates()
     if (mod(i, 100).eq.0) then
       ! write(*, '(a)', advance='no') '█'
-      ! write(*, *) i, maxval(pool_bin), maxval(pq_bin), maxval(q_bin)
-      write(*, *) i, sum(pool_bin), sum(pq_bin), sum(q_bin)
+      write(*, *) i, maxval(ann_bin), maxval(pool_bin), maxval(pq_bin), maxval(q_bin)
+      ! write(*, *) i, sum(pool_bin), sum(pq_bin), sum(q_bin)
     end if
     n_i = 0
     n_current = 0
@@ -161,6 +162,14 @@ program iteration
       call update_rates(j, n_i(j), t)
     end do
     do while ((n_current > 0).and.(t < max_time))
+      ! NB: this is just a phenomenological thing.
+      ! it seems that if the time step is too large during the pulse,
+      ! annihilation isn't chosen regularly enough; not sure why this is
+      if (t < 1.5_dp * t_pulse) then
+        dt = 0.1_dp
+      else
+        dt = 1.0_dp
+      end if
       call mc_step(dt, rho_q, i)
     end do
     ! stat = 0
@@ -217,8 +226,6 @@ program iteration
   deallocate(pool_bin)
   deallocate(pq_bin)
   deallocate(q_bin)
-
-  stop
 
   contains
 
@@ -355,7 +362,7 @@ program iteration
       else
         rates(start) = 0.0_dp
       end if
-      do k = start + 1, start + rate_size - 1
+      do k = start + 1, end_ - 1
         rates(k) = rates(k) * n
       end do
       if (mod(ind, rate_size) == n_sites - 1) then
@@ -372,6 +379,7 @@ program iteration
       else if (mod(ind, rate_size) == n_sites) then
         ! quencher
         ann_fac = 0.
+        call count_multiples(q, c_q, n_mult)
         do k = 1, size(c_q)
           if (c_q(k).gt.1) then
             ann_fac = ann_fac + (c_q(k) * (c_q(k) - 1) / 2.0_dp)
@@ -381,8 +389,6 @@ program iteration
       else
         ann_fac = (n * (n - 1)) / 2.0_dp
         rates(end_) = rates(end_) * ann_fac
-        ! write(*, *) "update_rates after: i = ", ind, "n = ", n,&
-        !   "rates = ", rates(start:start + rate_size)
       end if
     end subroutine update_rates
 
@@ -626,6 +632,9 @@ program iteration
         ! need to check this is right lol
         probs = [(rates(k) * exp(-1.0_dp * rates(k) * dt), &
           k = ((trimer - 1) * rate_size) + 1, (trimer * rate_size))]
+        ! do k = 2, size(probs)
+        !   probs(k) = probs(k) * dt
+        ! end do
         do k = 1, size(probs)
           if (probs(k).gt.0.0_dp) then
             nonzero = nonzero + 1
@@ -646,6 +655,8 @@ program iteration
             end if
           end do
           call random_number(rand)
+          ! write(*,'(4ES10.3, a, 4ES10.3, I2, I2, F8.3, F8.3, F8.3)') rates(((trimer - 1) * rate_size) + 1:(trimer * rate_size)),&
+          !   " probs = ", probs, nonzero, choice, rand, t, dt
           if ((choice.eq.0).or.(choice.gt.size(probs))) then
             write(*, *) "probs/choice", probs, choice, probs(choice)
           end if

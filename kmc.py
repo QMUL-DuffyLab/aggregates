@@ -13,7 +13,7 @@ class Pulse():
         self.ft = 1. / (self.sigma * np.sqrt(2. * np.pi)) * \
     np.exp(- (self.t - self.mu)**2 / (np.sqrt(2.) * self.sigma)**2)
 
-class Model():
+class Rates():
     '''
     Simple container for a set of relevant rates - tau_x is the time constant
     of process x. e.g. we assume "pool" chlorophylls decay on a timescale

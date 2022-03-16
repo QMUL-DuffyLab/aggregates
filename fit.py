@@ -4,7 +4,7 @@ from lmfit.models import ExponentialModel
 import lmfit
 import requests
 
-def histogram(data, filename, binwidth=50.):
+def histogram(data, filename, binwidth=1.):
     '''
     plot a histogram of all the emissive decays via matplotlib;
     return the set of bin values and edges so we can fit them after
@@ -16,7 +16,8 @@ def histogram(data, filename, binwidth=50.):
     plt.gca().set_ylabel("Counts")
     plt.gca().set_xlabel("Time (ps)")
     plt.gca().set_yscale('log')
-    plt.gca().set_xlim([0.0, np.max(data)])
+    plt.gca().set_xscale('log')
+    plt.gca().set_xlim([1.0, np.max(data)])
     plt.savefig(filename)
     plt.close()
     return n, bins

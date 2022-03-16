@@ -96,7 +96,7 @@ program iteration
   n_pq_d = 0
   n_q_d = 0
 
-  dt = 0.1_dp
+  dt = 1.0_dp
   t_pulse = 2.0_dp * mu
   allocate(pulse(int(t_pulse / dt)))
   write(*, *) t_pulse, mu
@@ -145,13 +145,15 @@ program iteration
     call allocate_quenchers(quenchers, rho_q)
     call fix_base_rates()
     if (mod(i, 100).eq.0) then
-      ! write(*, '(a)', advance='no') '█'
       write(*, *) i, maxval(ann_bin), maxval(pool_bin), maxval(pq_bin), maxval(q_bin)
-      ! write(*, *) i, sum(pool_bin), sum(pq_bin), sum(q_bin)
     end if
     n_i = 0
     n_current = 0
     t = 0.0_dp
+    ! NB: this is just a phenomenological thing.
+    ! it seems that if the time step is too large during the pulse,
+    ! annihilation isn't chosen regularly enough; not sure why this is
+    dt = 1.0_dp
     do j = 1, n_sites
       call update_rates(j, n_i(j), t)
     end do
@@ -162,14 +164,7 @@ program iteration
       call update_rates(j, n_i(j), t)
     end do
     do while ((n_current > 0).and.(t < max_time))
-      ! NB: this is just a phenomenological thing.
-      ! it seems that if the time step is too large during the pulse,
-      ! annihilation isn't chosen regularly enough; not sure why this is
-      if (t < 1.5_dp * t_pulse) then
-        dt = 0.1_dp
-      else
-        dt = 1.0_dp
-      end if
+      ! dt = 0.1_dp * ceiling(t / t_pulse)
       call mc_step(dt, rho_q, i)
     end do
     ! stat = 0
@@ -364,6 +359,7 @@ program iteration
       end if
       do k = start + 1, end_ - 1
         rates(k) = rates(k) * n
+        ! rates(k) = 0.0_dp
       end do
       if (mod(ind, rate_size) == n_sites - 1) then
         ! pre-quencher
@@ -388,6 +384,7 @@ program iteration
         rates(end_) = rates(end_) * ann_fac
       else
         ann_fac = (n * (n - 1)) / 2.0_dp
+        ! ann_fac = 0.0_dp
         rates(end_) = rates(end_) * ann_fac
       end if
     end subroutine update_rates
@@ -628,68 +625,40 @@ program iteration
         pop_loss = (/.false., .false., .false., .false./)
         trimer = randint(n_attempts)
         call update_rates(trimer, n_i(trimer), t)
-        nonzero = 0
         ! need to check this is right lol
         probs = [(rates(k) * exp(-1.0_dp * rates(k) * dt), &
           k = ((trimer - 1) * rate_size) + 1, (trimer * rate_size))]
-        ! do k = 2, size(probs)
-        !   probs(k) = probs(k) * dt
-        ! end do
         do k = 1, size(probs)
-          if (probs(k).gt.0.0_dp) then
-            nonzero = nonzero + 1
+          choice = randint(size(probs))
+          if (probs(choice).gt.0.0_dp) then
+            call random_number(rand)
+            if (rand.lt.probs(choice)) then
+              call move(trimer, choice, pop_loss, iter)
+            end if
           end if
         end do
-        if (nonzero.eq.0) then
-          cycle
-        else
-          choice = randint(nonzero)
-          nonzero = 0
-          do k = 1, size(probs)
-            if (probs(k).gt.0.0_dp) then
-              nonzero = nonzero + 1
-            end if
-            if (nonzero.eq.choice) then
-              choice = k
-              exit
+        if (any(pop_loss)) then
+          if (pop_loss(1)) then
+            ann_bin(floor(t / binwidth) + 1) = &
+              ann_bin(floor(t / binwidth) + 1) + 1
+          else if (pop_loss(2)) then
+            pool_bin(floor(t / binwidth) + 1) = &
+              pool_bin(floor(t / binwidth) + 1) + 1
+          else if (pop_loss(3)) then
+            pq_bin(floor(t / binwidth) + 1) = &
+              pq_bin(floor(t / binwidth) + 1) + 1
+          else if (pop_loss(4)) then
+            q_bin(floor(t / binwidth) + 1) = &
+              q_bin(floor(t / binwidth) + 1) + 1
+          end if
+          ! the following just outputs all decay times and types
+          ! to a file for the python to then interpret
+          do k = 1, size(pop_loss)
+            if (pop_loss(k)) then
+              ! append loss time and decay type to file here!
+              write(20, '(F10.4, a, I1)') t, " ", k
             end if
           end do
-          call random_number(rand)
-          ! write(*,'(4ES10.3, a, 4ES10.3, I2, I2, F8.3, F8.3, F8.3)') rates(((trimer - 1) * rate_size) + 1:(trimer * rate_size)),&
-          !   " probs = ", probs, nonzero, choice, rand, t, dt
-          if ((choice.eq.0).or.(choice.gt.size(probs))) then
-            write(*, *) "probs/choice", probs, choice, probs(choice)
-          end if
-          if (rand.lt.probs(choice)) then
-            if (choice.eq.0) then
-              write(*, *) "CHOICE = 0"
-            end if
-            call move(trimer, choice, pop_loss, iter)
-            ! write(*,*) "move accepted. trimer = ", trimer, "q = ", choice
-          end if
-          if (any(pop_loss)) then
-            if (pop_loss(1)) then
-              ann_bin(floor(t / binwidth) + 1) = &
-                ann_bin(floor(t / binwidth) + 1) + 1
-            else if (pop_loss(2)) then
-              pool_bin(floor(t / binwidth) + 1) = &
-                pool_bin(floor(t / binwidth) + 1) + 1
-            else if (pop_loss(3)) then
-              pq_bin(floor(t / binwidth) + 1) = &
-                pq_bin(floor(t / binwidth) + 1) + 1
-            else if (pop_loss(4)) then
-              q_bin(floor(t / binwidth) + 1) = &
-                q_bin(floor(t / binwidth) + 1) + 1
-            end if
-            ! the following just outputs all decay times and types
-            ! to a file for the python to then interpret
-            do k = 1, size(pop_loss)
-              if (pop_loss(k)) then
-                ! append loss time and decay type to file here!
-                write(20, '(F10.4, a, I1)') t, " ", k
-              end if
-            end do
-          end if
         end if
       end do
       t = t + dt

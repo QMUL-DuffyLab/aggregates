@@ -27,7 +27,7 @@ def Convol(x, h):
     H = np.fft.fft(h)
     return np.real(np.fft.ifft(X * H))
 
-def biexprisemodel(x, tau_1, a_1, tau_2, a_2, y0, x0, irf):
+def monoexprisemodel(x, tau_1, a_1, y0, x0, irf):
     ymodel=np.zeros(x.size)
     t=x
     c=x0
@@ -42,19 +42,29 @@ def biexprisemodel(x, tau_1, a_1, tau_2, a_2, y0, x0, irf):
     with open("out/irf_shift.dat", "a") as f:
         np.savetxt(f, irf_shift)
         f.write("\n")
-    # irf_shift=irf
+    irf_reshaped_norm=irf_shift/sum(irf_shift)
+    ymodel = a_1 * np.exp(-x / float(tau_1))
+    z=Convol(ymodel,irf_reshaped_norm)
+    z+=y0
+    return z
+
+def biexprisemodel(x, tau_1, a_1, tau_2, a_2, y0, x0, irf):
+    ymodel=np.zeros(x.size)
+    t=x
+    c=x0
+    n=len(irf)
+    dt = x[1] - x[0] # assumes even spacing!
+    # there's an issue here - if dt != 1 it doesn't seem to work right
+    irf_s1 = np.remainder(np.remainder(t - np.floor(c) - dt, n) + n, n)
+    irf_s11=(1-c+np.floor(c))*irf[irf_s1.astype(int)]
+    irf_s2=np.remainder(np.remainder(t-np.ceil(c)-1,n)+n,n)
+    irf_s22=(c-np.floor(c))*irf[irf_s2.astype(int)]
+    irf_shift=irf_s11+irf_s22
     irf_reshaped_norm=irf_shift/sum(irf_shift)
     ymodel = a_1 * np.exp(-x / float(tau_1))
     ymodel+= a_2 * np.exp(-x / float(tau_2))
-    with open("out/ymodel.dat", "a") as f:
-        np.savetxt(f, ymodel)
-        f.write("\n")
     z=Convol(ymodel,irf_reshaped_norm)
     z+=y0
-    with open("out/z.dat", "a") as f:
-        np.savetxt(f, z)
-        f.write("\n")
-
     return z
 
 if __name__ == "__main__":

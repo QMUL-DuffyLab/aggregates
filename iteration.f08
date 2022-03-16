@@ -135,8 +135,6 @@ program iteration
   open(file=loss_file, unit=20)
   i = 0
   ! keep iterating till we get a decent number of counts
-  ! do while ((maxval(pool_bin) < 10000).and.(maxval(pq_bin) < 10000)&
-  !      .and.(maxval(q_bin) < 10000.))
   max_count = 5000
   do while ((maxval(pool_bin) < max_count).and.(maxval(pq_bin) < max_count)&
        .and.(maxval(q_bin) < max_count))
@@ -150,9 +148,6 @@ program iteration
     n_i = 0
     n_current = 0
     t = 0.0_dp
-    ! NB: this is just a phenomenological thing.
-    ! it seems that if the time step is too large during the pulse,
-    ! annihilation isn't chosen regularly enough; not sure why this is
     dt = 1.0_dp
     do j = 1, n_sites
       call update_rates(j, n_i(j), t)
@@ -164,13 +159,8 @@ program iteration
       call update_rates(j, n_i(j), t)
     end do
     do while ((n_current > 0).and.(t < max_time))
-      ! dt = 0.1_dp * ceiling(t / t_pulse)
       call mc_step(dt, rho_q, i)
     end do
-    ! stat = 0
-    ! do while (stat.eq.0)
-    !   stat = kmc_step(i)
-    ! end do
     i = i + 1
   end do
 
@@ -187,22 +177,6 @@ program iteration
   call cpu_time(end_time)
   write(*, *) "Time elapsed: ", end_time - start_time
   write(*, *) "Number of iterations: ", i
-
-  ! These don't work - we have a variable number of iterations now
-  ! bc we run till a specific max count; so can't just allocate these
-  ! with a specific length. If we need this data, we can calculate
-  ! running averages for these quantities instead, but haven't done
-  ! that yet
-  ! write(*, *) "Average number of excitations per trimer: ",&
-  !   float(sum(n_gen)) / (i * (n_sites - 2))
-  ! write(*, *) "Average number of annihilations: ",&
-  !   float(sum(n_ann)) / (i)
-  ! write(*, *) "Average number of pool decays: ",&
-  !   float(sum(n_po_d)) / (i)
-  ! write(*, *) "Average number of pq decays: ",&
-  !   float(sum(n_pq_d)) / (i)
-  ! write(*, *) "Average number of q decays: ",&
-  !   float(sum(n_q_d)) / (i)
 
   deallocate(quenchers)
   deallocate(seed)

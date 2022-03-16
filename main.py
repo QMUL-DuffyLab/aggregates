@@ -24,11 +24,11 @@ if __name__ == "__main__":
     n_iterations = 1000
     rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
-    # fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
-    #         1.9E14, 3.22E14, 6.12E14, 9.48E14]
-    fluences = [3.03E13, 6.24E13, 1.31E14,
+    fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
             1.9E14, 3.22E14, 6.12E14, 9.48E14]
-    fluences = [3.22E14, 6.12E14, 9.48E14]
+    # fluences = [3.03E13, 6.24E13, 1.31E14,
+    #         1.9E14, 3.22E14, 6.12E14, 9.48E14]
+    # fluences = [3.22E14, 6.12E14, 9.48E14]
     # annihilation, pool decay, pq decay, q decay
     rates_dict = {
      'lut_eet': Rates(20., 3800., 3800., 14., 
@@ -51,6 +51,7 @@ if __name__ == "__main__":
     plt.legend()
     plt.savefig("out/pulses.pdf")
     plt.close()
+    lifetimes = []
     for fluence in fluences:
         print("Fluence = {:4.2E}, n_iterations = {:d}".format(
             fluence, n_iterations))
@@ -112,17 +113,25 @@ if __name__ == "__main__":
 
         # this is in the SO question - are these weights necessary? why?
         weights = 1/np.sqrt(histvals + 1)
-        mod = Model(fit.biexprisemodel, independent_vars=('x', 'irf'))
-        pars = mod.make_params(tau_1 = 1./rates.k_ann, a_1 = 1.,
-                tau_2 = 1./rates.g_pool, a_2 = 1., y0 = 0., x0 = 0)
+        if fluence > 1E14:
+            mod = Model(fit.biexprisemodel, independent_vars=('x', 'irf'))
+            pars = mod.make_params(tau_1 = 1./rates.k_ann, a_1 = 1.,
+                    tau_2 = 1./rates.g_pool, a_2 = 1., y0 = 0., x0 = 0)
+        else:
+            mod = Model(fit.monoexprisemodel, independent_vars=('x', 'irf'))
+            pars = mod.make_params(tau_1 = 1./rates.g_pool, a_1 = 1., y0 = 0., x0 = 0)
         pars['x0'].vary = True
         pars['y0'].vary = True
         try:
             result = mod.fit(histvals, params=pars, weights=weights, method='leastsq', x=xvals, irf=long_gauss)
             print(result.fit_report())
             res = result.best_values
-            lifetime = ((res["a_1"] * res["tau_1"] + res["a_2"] * res["tau_2"])
-                    / (res["a_1"] + res["a_2"]))
+            if fluence > 1E14:
+                lifetime = ((res["a_1"] * res["tau_1"] + res["a_2"] * res["tau_2"])
+                        / (res["a_1"] + res["a_2"]))
+            else:
+                lifetime = res["tau_1"]
+            lifetimes.append(lifetime)
             print("Lifetime = {} ps".format(lifetime))
             plt.figure()
             plt.subplot(2, 1, 1)
@@ -137,7 +146,5 @@ if __name__ == "__main__":
 
     end_time = time.monotonic()
     print("Total time elapsed: {}".format((end_time - start_time)))
-    # np.savetxt("{}/mono_tau.dat".format(path), np.array(mono_tau))
-    # np.savetxt("{}/bi_tau.dat".format(path), np.array(bi_tau))
-    # np.savetxt("{}/tri_tau.dat".format(path), np.array(tri_tau))
-    # subprocess.run(['python', 'plot_tau.py', '{}/{:d}_{:3.2f}'.format(path, n_iterations, rho_quenchers)], check=True)
+    np.savetxt("{}/lifetimes.dat".format(path), np.array(lifetimes))
+    subprocess.run(['python', 'plot_tau.py', '{}/{:d}_{:3.2f}'.format(path, n_iterations, rho_quenchers)], check=True)

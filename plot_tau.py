@@ -20,31 +20,10 @@ def forward(x):
 def backward(x):
     return x / 1.1E-14
 
-taus = []
-for f in fluences:
-    d = np.loadtxt("{}_{:4.2E}_decays.dat".format(file_path, f))
-    m = np.mean(d[:, 0])
-    err = np.std(d[:, 0]) / np.sqrt(1000)
-    print("Fluence = {:4.2e}".format(f))
-    print("Total mean = {:6.2f}, standard error = {:6.2f}".format(m, err))
-    taus.append([f, m, err])
-
-taus = np.array(taus)
-np.savetxt("{}/taus.dat".format(os.path.dirname(file_path)), taus)
-plot_exp_fits = True
-if plot_exp_fits:
-    mono_tau = np.loadtxt("{}/mono_tau.dat".format(os.path.dirname(file_path)))
-    bi_tau = np.loadtxt("{}/bi_tau.dat".format(os.path.dirname(file_path)))
-# taus_pr_01 = np.loadtxt("{}/lut_eet/hex/taus_pr_0.1.dat".format(path))
+lifetimes = np.loadtxt("{}/lifetimes.dat".format(os.path.dirname(file_path)))
 
 fig, ax1 = plt.subplots()
-plt.errorbar(taus[:, 0], taus[:, 1]/1000., yerr=np.sqrt(taus[:, 2]/1000.), 
-        label=r'$ \left< \tau \right> $', elinewidth=0.5, capsize=2.0, marker='o', ms=6.0, lw=3.0)
-if plot_exp_fits:
-    plt.plot(mono_tau[:, 0], mono_tau[:, 1]/1000., label=r'$ \left< \tau_{\text{mono}} \right> $', marker='o', ms=6.0, lw=3.0)
-    plt.plot(bi_tau[:, 0][np.where(bi_tau[:, 1]>500.)], bi_tau[:, 1][np.where(bi_tau[:, 1]>500.)]/1000., label=r'$ \left< \tau_{\text{bi}} \right> $', marker='o', ms=6.0, lw=3.0)
-# plt.errorbar(taus_pr_01[:, 0], taus_pr_01[:, 1]/1000., yerr=np.sqrt(taus_pr_01[:, 2]/1000.), 
-#         label='Const. 0.1', elinewidth=0.5, capsize=2.0, marker='o', ms=6.0, lw=3.0)
+plt.plot(fluences, lifetimes/1000., label=r'$ \left< \tau_{\text{avg.}} \right> $', marker='o', ms=6.0, lw=3.0)
 plt.errorbar(exp[:, 0], exp[:, 1], yerr=exp[:, 2], label=r'Exp.', 
         elinewidth=0.5, capsize=2.0, marker='o', ms=6.0, lw=3.0)
 plt.grid()
@@ -59,7 +38,7 @@ ax1.set_xticks(fluences)
 ax2 = ax1.twiny()
 ax2.set_xscale('log')
 ax2.set_xbound(ax1.get_xbound())
-ax2.set_xticks(taus[:, 0])
+ax2.set_xticks(fluences)
 f_fmt = ["{:4.2f}".format(x * 1E-14) for x in fluences]
 ax1.set_xticklabels(f_fmt)
 rhos = [forward(x) for x in fluences]

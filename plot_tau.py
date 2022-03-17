@@ -2,23 +2,15 @@ import sys
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from os.path import exists
 
-# path = "/home/callum/code/aggregates/out"
-# n_iterations = "{:d}".format(1000)
-# n_quenchers = "{:3.2f}".format(0.0)
-print(str(sys.argv))
 file_path = sys.argv[1]
-print(file_path)
-
 exp = np.loadtxt("out/exp_lhcii_solution.dat")
 fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
         1.9E14, 3.22E14, 6.12E14, 9.48E14]
 rho = 1.1E-14 * np.array(fluences)
 def forward(x):
+    '''convert fluence to average excitons per trimer'''
     return x * 1.1E-14
-def backward(x):
-    return x / 1.1E-14
 
 lifetimes = np.loadtxt("{}/lifetimes.dat".format(os.path.dirname(file_path)))
 

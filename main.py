@@ -32,9 +32,9 @@ if __name__ == "__main__":
     # annihilation, pool decay, pq decay, q decay
     rates_dict = {
      'lut_eet': Rates(20., 3800., 3800., 14., 
-         7., 1., 20., np.inf, 48., [False, True, True, False], True, True),
+         7., 1., 20., np.inf, 100., [False, True, True, False], True, True),
      'schlau_cohen': Rates(20., 3800., 3800., 14., 
-         7., 1., 0.4, 0.4, 48., [False, True, True, False], True, True)
+         7., 1., 0.4, 0.4, 100., [False, True, True, False], True, True)
      }
     rates_key = 'lut_eet'
     rates = rates_dict[rates_key]

@@ -63,7 +63,7 @@ class Iteration():
         self.fluence = fluence
         self.rho_quenchers = rho_quenchers
         # pre-quencher and quencher
-        self.n_sites = len(self.aggregate.trimers) + 2
+        self.n_sites = len(self.aggregate.trimers)
         self.n_i = np.zeros(self.n_sites, dtype=np.uint8)
         self.quenchers = np.full(len(self.aggregate.trimers), False, dtype=bool)
         self.quencher_setup(self.rho_quenchers)
@@ -103,37 +103,33 @@ class Iteration():
         '''
         self.max_neighbours = np.max(np.fromiter((len(x.get_neighbours()) 
                      for x in self.aggregate.trimers), int))
-        self.base_rates = np.zeros((self.n_sites, self.max_neighbours + 4),\
+        self.base_rates = np.zeros((self.n_sites + 2, self.max_neighbours + 4),\
                 dtype=float)
-        for i in range(self.n_sites):
+        for i in range(self.n_sites + 2):
             t = self.base_rates[i].copy()
             # first element is generation
-            if i < self.n_sites - 2:
+            if i < self.n_sites:
                 # trimer (pool)
                 n_neigh = len(self.aggregate.trimers[i].get_neighbours())
                 for j in range(n_neigh):
                     t[self.max_neighbours - (j)] = self.model.hop
-                # if self.quenchers[i]:
                 t[self.max_neighbours + 1] = self.model.k_po_pq
-                # else:
-                #     t[self.max_neighbours + 1] = 0.
                 t[self.max_neighbours + 2] = self.model.g_pool
                 t[self.max_neighbours + 3] = self.model.k_ann
-            elif i == self.n_sites - 2:
+            elif i == self.n_sites:
                 if (self.rho_quenchers != 0):
-                # pre-quencher
+                    # pre-quencher
                     t[self.max_neighbours] = self.model.k_pq_po
                     t[self.max_neighbours + 1] = self.model.k_pq_q
                     t[self.max_neighbours + 2] = self.model.g_pq
                     t[self.max_neighbours + 3] = self.model.k_ann
-            elif i == self.n_sites - 1:
+            elif i == self.n_sites + 1:
                 # quencher
                 if (self.rho_quenchers != 0):
                     t[self.max_neighbours + 1] = self.model.k_q_pq
                     t[self.max_neighbours + 2] = self.model.g_q
                     t[self.max_neighbours + 3] = self.model.k_ann
             self.base_rates[i] = t
-            # print(i, self.base_rates[i], file=self.output)
         return self.base_rates
 
     def update_rates(self, index, n, t):
@@ -578,7 +574,7 @@ class Iteration():
             f.write("{:f}\n".format(self.pulse.mu))
             f.write("{:f}\n".format(self.pulse.fwhm))
             f.write("{:f}\n".format(binwidth))
-            f.write("{:f}\n".format(max_count))
+            f.write("{:d}\n".format(max_count))
             f.write(rates_file)
             f.write("\n")
             f.write(neighbours_file)

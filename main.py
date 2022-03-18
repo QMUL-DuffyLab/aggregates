@@ -25,11 +25,11 @@ if __name__ == "__main__":
     binwidth = 25.
     rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
-    fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
-            1.9E14, 3.22E14, 6.12E14, 9.48E14]
+    # fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
+    #         1.9E14, 3.22E14, 6.12E14, 9.48E14]
     # fluences = [3.03E13, 6.24E13, 1.31E14,
     #         1.9E14, 3.22E14, 6.12E14, 9.48E14]
-    # fluences = [3.22E14, 6.12E14, 9.48E14]
+    fluences = [6.12E14, 9.48E14]
     # annihilation, pool decay, pq decay, q decay
     rates_dict = {
      'lut_eet': Rates(20., 3800., 3800., 14., 
@@ -54,8 +54,8 @@ if __name__ == "__main__":
     plt.close()
     lifetimes = []
     for fluence in fluences:
-        print("Fluence = {:4.2E}, n_iterations = {:d}".format(
-            fluence, n_iterations))
+        print("Fluence = {:4.2E}".format(
+            fluence))
         path = "out/{}/{}".format(rates_key, lattice_type)
         os.makedirs(path, exist_ok=True)
         file_prefix = "{:3.2f}_{:4.2E}".format(

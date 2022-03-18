@@ -37,17 +37,17 @@ program iteration
   read(20, '(a)') rates_file
   read(20, '(a)') neighbours_file
   close(20)
-  rate_size = max_neighbours + 4
-  write(*, '(a, I8)') "n_sites = ", n_sites
-  write(*, '(a, I8)') "max neighbours = ", max_neighbours
-  write(*, '(a, F8.3)') "rho_q = ", rho_q
-  write(*, '(a, ES8.3)') "fluence = ", fluence
-  write(*, '(a, F8.3)') "mu = ", mu
-  write(*, '(a, F8.3)') "fwhm = ", fwhm
-  write(*, '(a, I8)') "binwidth = ", binwidth
-  write(*, '(a, I8)') "max count = ", max_count
-  write(*, '(a, a)') "rates file = ", rates_file
-  write(*, '(a, a)') "neighbours file = ", neighbours_file
+  rate_size = max_neighbours + 5
+  write(*, '(a, I4)')     "n_sites    = ", n_sites
+  write(*, '(a, I1)')     "max neigh  = ", max_neighbours
+  write(*, '(a, F8.3)')   "rho_q      = ", rho_q
+  write(*, '(a, ES10.3)') "fluence    = ", fluence
+  write(*, '(a, F8.3)')   "mu         = ", mu
+  write(*, '(a, F8.3)')   "fwhm       = ", fwhm
+  write(*, '(a, F8.3)')   "binwidth   = ", binwidth
+  write(*, '(a, I8)')     "max count  = ", max_count
+  write(*, '(a, a)')      "rate file  = ", rates_file
+  write(*, '(a, a)')      "neigh file = ", neighbours_file
 
   i = scan(rates_file, "/\", .true.)
   file_path = rates_file(:i)
@@ -69,7 +69,7 @@ program iteration
     close(20)
   end if
   neighbours = reshape(neighbours_temp, (/n_sites, max_neighbours/))
-  allocate(base_rates(n_sites * rate_size))
+  allocate(base_rates((n_sites + 2) * rate_size))
   allocate(rates(rate_size))
   allocate(n_i(n_sites))
   allocate(n_pq(n_sites))
@@ -78,7 +78,6 @@ program iteration
   dt = 1.0_dp
   t_pulse = 2.0_dp * mu
   allocate(pulse(int(t_pulse / dt)))
-  write(*, *) t_pulse, mu
   sigma = fwhm / (2.0_dp * (sqrt(2.0_dp * log(2.0_dp))))
   do i = 1, int(t_pulse / dt)
     pulse(i) = 1.0_dp / (sigma * sqrt(2.0_dp * pi)) * &
@@ -115,8 +114,9 @@ program iteration
   open(file=loss_file, unit=20)
   i = 0
   ! keep iterating till we get a decent number of counts
-  do while ((maxval(pool_bin).lt.max_count).and.(maxval(pq_bin).lt.max_count)&
-       .and.(maxval(q_bin).lt.max_count))
+  ! pool decays and pre-quencher decays are emissive, so
+  ! those are what we're concerned with for the fit
+  do while ((maxval(pool_bin) + maxval(pq_bin)).lt.max_count)
     seed = i
     call random_seed(put=seed)
     is_quencher = .false.
@@ -126,6 +126,8 @@ program iteration
       write(*, *) i, maxval(ann_bin), maxval(pool_bin), maxval(pq_bin), maxval(q_bin)
     end if
     n_i = 0
+    n_pq = 0
+    n_q = 0
     n_current = 0
     t = 0.0_dp
     do while (t.lt.t_pulse)
@@ -228,18 +230,18 @@ program iteration
       character(4) :: rate_type
       integer(ip) :: ind, start, end_, n, t_index, k, n_mult
       real(dp) :: t, ft, xsec, sigma_ratio, n_pigments, ann_fac
-      if (rate_type.eq."PQ") then
-        start = ((n_sites - 2) * rate_size) + 1
-        end_ = start + rate_size - 1
-        n = n_i(ind)
-      else if (rate_type.eq."Q") then
-        start = ((n_sites - 1) * rate_size) + 1
+      if (trim(rate_type).eq."PQ") then
+        start = ((n_sites) * rate_size) + 1
         end_ = start + rate_size - 1
         n = n_pq(ind)
+      else if (trim(rate_type).eq."Q") then
+        start = ((n_sites + 1) * rate_size) + 1
+        end_ = start + rate_size - 1
+        n = n_q(ind)
       else if (rate_type.eq."POOL") then
         start = ((ind - 1) * rate_size) + 1
         end_ = start + rate_size - 1
-        n = n_q(ind)
+        n = n_i(ind)
       else
         write (*, *) "get_rates - rate_type error"
       end if
@@ -303,7 +305,7 @@ program iteration
         else
           write(*, *) "Move function failed on trimer.", ind, process
         end if
-      else if (rate_type.eq."PQ") then
+      else if (trim(rate_type).eq."PQ") then
         ! pre-quencher
         if (process.eq.1) then
           ! generation
@@ -313,69 +315,62 @@ program iteration
           ! hop back to pool trimer
           n_pq(ind) = n_pq(ind) - 1
           n_i(ind)  = n_i(ind)  + 1
-          ! write(*, *) "hop from pq to ", pq(choice), "n_pq = ", n_pq - 1
         else if (process.eq.rate_size - 2) then
           ! hop to quencher
           n_pq(ind) = n_pq(ind) - 1
           n_q(ind)  = n_q(ind)  + 1
-          ! write(*, *) "hop from pq to q. n_pq = ", n_pq, " n_q = ", n_q
         else if (process.eq.rate_size - 1) then
           ! pq decay
           n_pq(ind) = n_pq(ind) - 1
           n_current = n_current - 1
           pop_loss(3) = .true.
-          ! write(*, *) "decay on ", ind, ". n_current = ",&
-          !   n_current, " n_pq = ", n_pq
         else if (process.eq.rate_size) then
           ! annihilation
           n_pq(ind) = n_pq(ind) - 1
           n_current = n_current - 1
           pop_loss(1) = .true.
-          ! write(*, *) "ann on ", ind, ". n_current = ",&
-          !   n_current, " n_pq = ", n_pq
         else
           write(*, *) "Move function failed on pre-quencher."
         end if
-      else if (rate_type.eq."Q") then
+      else if (trim(rate_type).eq."Q") then
         ! quencher
         if (process.eq.0) then
           ! generation
           n_q(ind)  = n_q(ind)  + 1
           n_current = n_current + 1
-          ! write(*, *) "generation on q. n_current = ",&
-          !   n_current, "n_pq = ", n_q, "prev = ", choice
         else if (process.eq.(rate_size - 2)) then
           ! hop back to pre-quencher
           n_q(ind)  = n_q(ind)  - 1
           n_pq(ind) = n_pq(ind) + 1
-          ! write(*, *) "hop from q to pq. n_q = ", n_q, " n_pq = ", n_pq
         else if (process.eq.rate_size - 1) then
           ! q decay
           n_q(ind)  = n_q(ind)  - 1
           n_current = n_current - 1
-          pop_loss(3) = .true.
-          ! write(*, *) "decay on ", ind, ". n_current = ",&
-          !   n_current, " n_q = ", n_q
+          pop_loss(4) = .true.
         else if (process.eq.rate_size) then
           ! annihilation
           n_q(ind)  = n_q(ind)  - 1
           n_current = n_current - 1
           pop_loss(1) = .true.
-          ! write(*, *) "ann on ", ind, ". n_current = ",&
-          !   n_current, " n_q = ", n_q
         end if
+      end if
+      if ((n_i(ind).lt.0).or.(n_pq(ind).lt.0).or.(n_q(ind).lt.0)) then
+        write(*, *) "move set occupancy to < 0!!!", n_i(ind), n_pq(ind), n_q(ind)
+        stop
       end if
     end subroutine move
 
     subroutine mc_step(dt, n_quenchers)
       implicit none
       character(4) :: rate_type
-      integer(ip) :: n_attempts, i, k, n_quenchers, ri, trimer
+      integer(ip) :: n_attempts, nonzero, choice, i, j, k, n_quenchers, ri, trimer
       logical(C_Bool) :: pop_loss(4)
       real(dp) :: dt, rho_q, rand
       real(dp), dimension(rate_size) :: rates, probs
 
       n_attempts = n_sites + (2 * n_quenchers)
+      ! attempt to do something on each site
+      ! (including quenchers), on average
       do i = 1, n_attempts
         pop_loss = (/.false., .false., .false., .false./)
         ri = randint(n_attempts)
@@ -383,27 +378,57 @@ program iteration
           trimer = ri
           rate_type = "POOL"
         else if ((ri.gt.n_sites).and.&
-          (trimer.le.(n_sites + n_quenchers))) then
+          (ri.le.(n_sites + n_quenchers))) then
           trimer = quenchers(ri - n_sites)
           rate_type = "PQ"
         else if (ri.gt.(n_sites + n_quenchers)) then
           trimer = quenchers(ri - (n_sites + n_quenchers))
           rate_type = "Q"
         end if
+
         rates = get_rates(trimer, t, rate_type)
-        ! need to check this is right lol
-        probs = [(rates(k) * exp(-1.0_dp * rates(k) * dt), &
-          k = 1, rate_size)]
-        ! write(*, *) rates, probs
-        do k = 1, size(probs)
-          ri = randint(size(probs))
-          if (probs(ri).gt.0.0_dp) then
-            call random_number(rand)
-            if (rand.lt.probs(ri)) then
-              call move(trimer, ri, pop_loss, rate_type)
-            end if
+        ! no point bothering with this if no moves are possible
+        if (.not.any(rates.gt.0.0_dp)) then
+          cycle
+        end if
+        ! nonzero is the number of possible moves
+        nonzero = 0
+        do j = 1, rate_size
+          if (rates(j).gt.0.0_dp) then
+            nonzero = nonzero + 1
           end if
         end do
+
+        ! attempt each possible move once, on average
+        do j = 1, nonzero
+          ! check whether any moves are possible now
+          if (.not.any(rates.gt.0.0_dp)) then
+            exit
+          end if
+          probs = [(rates(k) * exp(-1.0_dp * rates(k) * dt), &
+            k = 1, rate_size)]
+          ! pick a possible move
+          choice = randint(nonzero)
+          ri = 0
+          do k = 1, rate_size
+            if (probs(k).gt.0.0_dp) then
+              ri = ri + 1
+            end if
+            if (ri.eq.choice) then
+              choice = k
+              exit
+            end if
+          end do
+          ! monte carlo test
+          call random_number(rand)
+          if (rand.lt.probs(choice)) then
+            ! successful move
+            call move(trimer, choice, pop_loss, rate_type)
+            ! we need to recalculate the rates (population changed)
+            rates = get_rates(trimer, t, rate_type)
+          end if
+        end do
+
         if (any(pop_loss)) then
           if (pop_loss(1)) then
             ann_bin(floor(t / binwidth) + 1) = &

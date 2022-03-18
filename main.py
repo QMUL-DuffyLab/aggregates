@@ -23,7 +23,7 @@ if __name__ == "__main__":
     n_iter = 8 # 434 trimers for honeycomb
     max_count = 5000
     binwidth = 25.
-    rho_quenchers = 0.0
+    rho_quenchers = 0.1
     # fluences given here as photons per pulse per unit area - 485nm
     # fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
     #         1.9E14, 3.22E14, 6.12E14, 9.48E14]
@@ -81,7 +81,10 @@ if __name__ == "__main__":
             subprocess.run(['./f_iter', it.params_file], check=True)
 
         decays = np.loadtxt(decay_filename)
-        emissions = decays[np.where(decays[:, 1] > 1), 0].flatten()
+        emissions = []
+        for i in range(len(decays)):
+            if decays[i, 1] == 2 or decays[i, 1] == 3:
+                emissions.append(decays[i, 0])
         tau = np.mean(decays[:, 0])
         sigma_tau = np.std(decays[:, 0])
         print("Total μ, σ: ", tau, sigma_tau)
@@ -151,4 +154,4 @@ if __name__ == "__main__":
     end_time = time.monotonic()
     print("Total time elapsed: {}".format((end_time - start_time)))
     np.savetxt("{}/lifetimes.dat".format(path), np.array(lifetimes))
-    subprocess.run(['python', 'plot_tau.py', '{}/{:d}_{:3.2f}'.format(path, n_iterations, rho_quenchers)], check=True)
+    subprocess.run(['python', 'plot_tau.py', '{}/{:3.2f}'.format(path, rho_quenchers)], check=True)

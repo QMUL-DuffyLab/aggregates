@@ -51,7 +51,8 @@ class Iteration():
     emissive or not.
     '''
     def __init__(self, aggregate, model, pulse, rho_quenchers,
-            n_iter, path, fluence, verbose=False, draw_frames=False):
+            path, fluence, binwidth, max_count,
+            verbose=False, draw_frames=False):
         if verbose:
             self.output = sys.stdout
         else:
@@ -60,8 +61,6 @@ class Iteration():
         self.model = model
         self.pulse = pulse
         self.fluence = fluence
-        self.n_iterations = n_iter
-        # self.rng = np.random.default_rng(seed=seed)
         self.rho_quenchers = rho_quenchers
         # pre-quencher and quencher
         self.n_sites = len(self.aggregate.trimers) + 2
@@ -76,37 +75,7 @@ class Iteration():
         self.t_tot = 0.
         self.n_current = 0
         self.loss_times = []
-        # four ways to lose population: annihilation, decay from a
-        # chl pool (trimer), decay from pre-quencher, decay from quencher
-        self.decay_type = []
-        self.write_arrays(path)
-        # initialise the rates!
-        # for i in range(self.n_sites):
-        #     self.update_rates(i, self.n_i[i], self.t_tot)
-        # if seed == 0:
-        #     self.draw("frames/init_{:03d}.jpg".format(seed))
-        # if self.n_st > 0:
-        #     for i in range(self.n_st):
-        #         print("Step {}, time = {:8.3e}, t_tot = {:8.3e}".format(i, self.t, self.t_tot))
-        #         if draw_frames:
-        #             if i % 100 == 0:
-        #                 self.draw("frames/{:03d}_{:03d}.jpg".format(i, seed))
-        #         self.kmc_step()
-        # else:
-        #     i = 0
-        #     res = 0
-        #     while self.t_tot < 2. * self.pulse.mu:
-        #         self.mc_step(1.)
-        #     for i in range(self.n_sites):
-        #         self.update_rates(i, self.n_i[i], self.t_tot)
-        #     while res == 0:
-        #         res = self.kmc_step()
-        #         i += 1
-        #         if draw_frames:
-        #             if i % 100 == 0:
-        #                 self.draw("frames/{:03d}_{:03d}.jpg".format(i, seed))
-        # self.loss_times = np.array(self.loss_times)
-        # self.decay_type = np.array(self.decay_type)
+        self.write_arrays(path, binwidth, max_count)
             
     def quencher_setup(self, rho_quench):
         '''
@@ -589,7 +558,7 @@ class Iteration():
         print("bkl: l, n, q = ", l, n, q)
         return (n, q, k_tot)
 
-    def write_arrays(self, path, binwidth=50., max_time=10000.):
+    def write_arrays(self, path, binwidth, max_count):
         self.params_file = "{}/params".format(path)
         neighbours_file = "{}/neighbours.dat".format(path)
         rates_file = "{}/base_rates.dat".format(path)
@@ -602,7 +571,6 @@ class Iteration():
                 neighbours[i][self.max_neighbours - j] = self.aggregate.trimers[i].get_neighbours()[j]
         np.savetxt(neighbours_file, neighbours.flatten(order='F'))
         with open(self.params_file, 'w') as f:
-            f.write("{:d}\n".format(self.n_iterations))
             f.write("{:d}\n".format(self.n_sites))
             f.write("{:d}\n".format(self.max_neighbours))
             f.write("{:f}\n".format(self.rho_quenchers))
@@ -610,7 +578,7 @@ class Iteration():
             f.write("{:f}\n".format(self.pulse.mu))
             f.write("{:f}\n".format(self.pulse.fwhm))
             f.write("{:f}\n".format(binwidth))
-            f.write("{:f}\n".format(max_time))
+            f.write("{:f}\n".format(max_count))
             f.write(rates_file)
             f.write("\n")
             f.write(neighbours_file)

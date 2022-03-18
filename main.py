@@ -21,7 +21,8 @@ if __name__ == "__main__":
     r = 5.
     lattice_type = "hex"
     n_iter = 8 # 434 trimers for honeycomb
-    n_iterations = 1000
+    max_count = 5000
+    binwidth = 25.
     rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
     fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
@@ -32,9 +33,9 @@ if __name__ == "__main__":
     # annihilation, pool decay, pq decay, q decay
     rates_dict = {
      'lut_eet': Rates(20., 3800., 3800., 14., 
-         7., 1., 20., np.inf, 100., [False, True, True, False], True, True),
+         7., 1., 20., np.inf, 50., [False, True, True, False], True, True),
      'schlau_cohen': Rates(20., 3800., 3800., 14., 
-         7., 1., 0.4, 0.4, 100., [False, True, True, False], True, True)
+         7., 1., 0.4, 0.4, 50., [False, True, True, False], True, True)
      }
     rates_key = 'lut_eet'
     rates = rates_dict[rates_key]
@@ -57,8 +58,8 @@ if __name__ == "__main__":
             fluence, n_iterations))
         path = "out/{}/{}".format(rates_key, lattice_type)
         os.makedirs(path, exist_ok=True)
-        file_prefix = "{:d}_{:3.2f}_{:4.2E}".format(
-                n_iterations, rho_quenchers, fluence)
+        file_prefix = "{:3.2f}_{:4.2E}".format(
+                rho_quenchers, fluence)
         decay_filename = "{}/{}_decays.dat".format(path, file_prefix)
         emission_filename = "{}/{}_emissions.dat".format(path, file_prefix)
 
@@ -74,8 +75,9 @@ if __name__ == "__main__":
             emission_stddevs = []
             yields = []
             it = Iteration(agg, rates, pulse,
-                    rho_quenchers, n_iterations,
-                    path, fluence, verbose=verbose)
+                    rho_quenchers,
+                    path, fluence, binwidth, max_count,
+                    verbose=verbose)
             subprocess.run(['./f_iter', it.params_file], check=True)
 
         decays = np.loadtxt(decay_filename)
@@ -98,9 +100,10 @@ if __name__ == "__main__":
 
         # matplotlib histogram - output bins and vals for lmfit
         histvals, histbins = fit.histogram(emissions,
-                "{}/{}_emission_histogram.pdf".format(path, file_prefix))
+                "{}/{}_emission_histogram.pdf".format(path, file_prefix),
+                binwidth)
         xvals = histbins[:-1] + (np.diff(histbins) / 2.)
-        print("HISTBINS = ", histbins)
+        print("xvals = ", xvals)
         histvals = histvals / np.max(histvals)
         np.savetxt("{}/{}_histvals.dat".format(path, file_prefix), histvals)
         np.savetxt("{}/{}_histbins.dat".format(path, file_prefix), histbins)
@@ -110,7 +113,8 @@ if __name__ == "__main__":
         long_gauss = long_gauss/np.max(long_gauss)
         histvals = histvals / np.max(histvals)
         np.savetxt("out/long_gauss.dat", long_gauss)
-
+        # func = fit.monoexprisemodel(xvals, 1./rates.g_pool, 1., 0., 0, long_gauss)
+        # quit()
         # this is in the SO question - are these weights necessary? why?
         weights = 1/np.sqrt(histvals + 1)
         if fluence > 1E14:

@@ -26,7 +26,6 @@ program iteration
   allocate(seed(seed_size))
   call get_command_argument(1, params_file)
   open(file=params_file, unit=20)
-  read(20, *) n_iter
   read(20, *) n_sites
   read(20, *) max_neighbours
   read(20, *) rho_q
@@ -34,12 +33,11 @@ program iteration
   read(20, *) mu
   read(20, *) fwhm
   read(20, *) binwidth
-  read(20, *) max_time
+  read(20, *) max_count
   read(20, '(a)') rates_file
   read(20, '(a)') neighbours_file
   close(20)
   rate_size = max_neighbours + 4
-  write(*, *) "n_iter = ", n_iter
   write(*, *) "n_sites = ", n_sites
   write(*, *) "max neighbours = ", max_neighbours
   write(*, *) "rho_q = ", rho_q
@@ -47,7 +45,7 @@ program iteration
   write(*, *) "mu = ", mu
   write(*, *) "fwhm = ", fwhm
   write(*, *) "binwidth = ", binwidth
-  write(*, *) "t_max = ", max_time
+  write(*, *) "max count = ", max_count
   write(*, *) "rates file = ", rates_file
   write(*, *) "neighbours file = ", neighbours_file
 
@@ -106,10 +104,9 @@ program iteration
       exp(-1.0_dp * ((i * dt) - mu)**2 / (sqrt(2.0_dp) * sigma)**2)
   end do
 
-  ! idea - could generate an array of bins and bin the decays as we
-  ! go. then reduce this if we're parallelising
   ! one set of bins for each decay type; the bin array index will be
   ! something like floor(t / bin_size) + 1
+  max_time = 10000.0_dp
   allocate(bins(int(max_time/binwidth)))
   allocate(ann_bin(int(max_time/binwidth)))
   allocate(pool_bin(int(max_time/binwidth)))
@@ -135,7 +132,6 @@ program iteration
   open(file=loss_file, unit=20)
   i = 0
   ! keep iterating till we get a decent number of counts
-  max_count = 5000
   do while ((maxval(pool_bin) < max_count).and.(maxval(pq_bin) < max_count)&
        .and.(maxval(q_bin) < max_count))
     seed = i
@@ -148,7 +144,6 @@ program iteration
     n_i = 0
     n_current = 0
     t = 0.0_dp
-    dt = 1.0_dp
     do j = 1, n_sites
       call update_rates(j, n_i(j), t)
     end do
@@ -315,7 +310,7 @@ program iteration
       end if
       ! write(*, *) "update_rates before: i = ", ind, "n = ", n,&
       !   "rates = ", rates(start:start + rate_size)
-      sigma_ratio = 1.0_dp
+      sigma_ratio = 1.5_dp
       n_pigments = 24.0_dp
       if (t < t_pulse) then
         t_index = int(t / dt) + 1

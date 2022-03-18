@@ -23,13 +23,11 @@ if __name__ == "__main__":
     n_iter = 8 # 434 trimers for honeycomb
     max_count = 5000
     binwidth = 25.
-    rho_quenchers = 0.1
+    rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
-    # fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
-    #         1.9E14, 3.22E14, 6.12E14, 9.48E14]
-    # fluences = [3.03E13, 6.24E13, 1.31E14,
-    #         1.9E14, 3.22E14, 6.12E14, 9.48E14]
-    fluences = [6.12E14, 9.48E14]
+    fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
+            1.9E14, 3.22E14, 6.12E14, 9.48E14]
+    # fluences = [6.12E14]
     # annihilation, pool decay, pq decay, q decay
     rates_dict = {
      'lut_eet': Rates(20., 3800., 3800., 14., 
@@ -80,45 +78,15 @@ if __name__ == "__main__":
                     verbose=verbose)
             subprocess.run(['./f_iter', it.params_file], check=True)
 
-        decays = np.loadtxt(decay_filename)
-        emissions = []
-        for i in range(len(decays)):
-            if decays[i, 1] == 2 or decays[i, 1] == 3:
-                emissions.append(decays[i, 0])
-        tau = np.mean(decays[:, 0])
-        sigma_tau = np.std(decays[:, 0])
-        print("Total μ, σ: ", tau, sigma_tau)
-        np.savetxt("{}/{}_total_mean_std.dat".format(path, file_prefix),
-                [tau, sigma_tau])
-        decay_pd = pd.DataFrame(decays, columns=["Time (ps)", "Decay type"])
-        typedict = {1.: "Ann.", 2.: "Pool", 3.: "PQ", 4: "Q"}
-        decay_pd = decay_pd.replace({"Decay type": typedict})
-        ax = sns.histplot(data=decay_pd, x="Time (ps)", hue="Decay type",
-                element="step", fill=False)
-        ax.set_yscale('log')
-        # ax.set_xlim((0., 800.))
-        plt.axvline(x=tau, ls="--", c='k')
-        plt.savefig("{}/{}_plot.pdf".format(path, file_prefix))
-        plt.close()
-
-        # matplotlib histogram - output bins and vals for lmfit
-        histvals, histbins = fit.histogram(emissions,
-                "{}/{}_emission_histogram.pdf".format(path, file_prefix),
-                binwidth)
-        xvals = histbins[:-1] + (np.diff(histbins) / 2.)
-        print("xvals = ", xvals)
-        histvals = histvals / np.max(histvals)
-        np.savetxt("{}/{}_histvals.dat".format(path, file_prefix), histvals)
-        np.savetxt("{}/{}_histbins.dat".format(path, file_prefix), histbins)
+        hist = np.loadtxt("{}/{}_counts.dat".format(path, file_prefix))
+        xvals = hist[:, 0] + ((hist[0, 1] - hist[0, 0]) / 2.)
+        histvals = hist[:, 2] + hist[:, 3]
         long_gauss = 1. / (pulse.sigma * np.sqrt(2. * np.pi)) * \
             np.exp(- (xvals - pulse.mu)**2 \
             / (np.sqrt(2.) * pulse.sigma)**2)
         long_gauss = long_gauss/np.max(long_gauss)
         histvals = histvals / np.max(histvals)
-        np.savetxt("out/long_gauss.dat", long_gauss)
-        # func = fit.monoexprisemodel(xvals, 1./rates.g_pool, 1., 0., 0, long_gauss)
-        # quit()
-        # this is in the SO question - are these weights necessary? why?
+
         weights = 1/np.sqrt(histvals + 1)
         if fluence > 1E14:
             mod = Model(fit.biexprisemodel, independent_vars=('x', 'irf'))
@@ -154,4 +122,4 @@ if __name__ == "__main__":
     end_time = time.monotonic()
     print("Total time elapsed: {}".format((end_time - start_time)))
     np.savetxt("{}/lifetimes.dat".format(path), np.array(lifetimes))
-    subprocess.run(['python', 'plot_tau.py', '{}/{:3.2f}'.format(path, rho_quenchers)], check=True)
+    subprocess.run(['python', 'plot_tau.py', '{}'.format(path, rho_quenchers)], check=True)

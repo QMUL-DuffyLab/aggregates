@@ -11,12 +11,12 @@ program iteration
     loss_file, seed_str, cols, counts_file, prefix_long
   character(len=:), allocatable :: file_path, prefix
   logical(c_bool), dimension(:), allocatable :: is_quencher
-  integer(ip) :: i, j, n_iter, n_sites, max_neighbours, rate_size,&
+  integer(ip) :: i, j, k, n_iter, n_sites, max_neighbours, rate_size,&
     n_current, seed_size, stat, col, max_count, n_quenchers
   integer(ip), dimension(:), allocatable :: n_i, n_pq, n_q, quenchers, seed
   integer(ip), dimension(:), allocatable :: neighbours_temp, n_gen,&
     n_ann, n_po_d, n_pq_d, n_q_d, ann_bin, pool_bin, pq_bin, q_bin
-  integer(ip), dimension(:, :), allocatable :: neighbours
+  integer(ip), dimension(:, :), allocatable :: neighbours, counts
   real(dp) :: mu, fluence, t, dt, t_pulse, rho_q,&
     sigma, fwhm, start_time, end_time, binwidth, max_time
   real(dp), dimension(:), allocatable :: rates, base_rates, pulse,&
@@ -88,14 +88,8 @@ program iteration
   ! something like floor(t / bin_size) + 1
   max_time = 10000.0_dp
   allocate(bins(int(max_time/binwidth)))
-  allocate(ann_bin(int(max_time/binwidth)))
-  allocate(pool_bin(int(max_time/binwidth)))
-  allocate(pq_bin(int(max_time/binwidth)))
-  allocate(q_bin(int(max_time/binwidth)))
-  ann_bin = 0
-  pool_bin = 0
-  pq_bin = 0
-  q_bin = 0
+  allocate(counts(4, int(max_time/binwidth)))
+  counts = 0
   do i = 1, size(bins)
     bins(i) = (i - 1) * binwidth
   end do
@@ -116,14 +110,14 @@ program iteration
   ! keep iterating till we get a decent number of counts
   ! pool decays and pre-quencher decays are emissive, so
   ! those are what we're concerned with for the fit
-  do while ((maxval(pool_bin) + maxval(pq_bin)).lt.max_count)
+  do while ((maxval(counts(2, :)) + maxval(counts(3, :))).lt.max_count)
     seed = i
     call random_seed(put=seed)
     is_quencher = .false.
     call allocate_quenchers(n_quenchers, is_quencher, quenchers)
     call fix_base_rates()
     if (mod(i, 100).eq.0) then
-      write(*, *) i, maxval(ann_bin), maxval(pool_bin), maxval(pq_bin), maxval(q_bin)
+      write(*, *) i, [(maxval(counts(j, :)), j = 1, 4)]
     end if
     n_i = 0
     n_pq = 0
@@ -146,8 +140,7 @@ program iteration
 
   open(file=counts_file, unit=20)
   do j = 1, size(bins)
-    write(20, '(F8.3, 4I8)') bins(j), ann_bin(j), pool_bin(j),&
-      pq_bin(j), q_bin(j)
+    write(20, '(F10.3, 4I10)') bins(j), [(counts(k, j), k = 1, 4)]
   end do
   close(20)
 
@@ -167,10 +160,7 @@ program iteration
   deallocate(neighbours_temp)
   deallocate(pulse)
   deallocate(bins)
-  deallocate(ann_bin)
-  deallocate(pool_bin)
-  deallocate(pq_bin)
-  deallocate(q_bin)
+  deallocate(counts)
 
   contains
 
@@ -430,25 +420,11 @@ program iteration
         end do
 
         if (any(pop_loss)) then
-          if (pop_loss(1)) then
-            ann_bin(floor(t / binwidth) + 1) = &
-              ann_bin(floor(t / binwidth) + 1) + 1
-          else if (pop_loss(2)) then
-            pool_bin(floor(t / binwidth) + 1) = &
-              pool_bin(floor(t / binwidth) + 1) + 1
-          else if (pop_loss(3)) then
-            pq_bin(floor(t / binwidth) + 1) = &
-              pq_bin(floor(t / binwidth) + 1) + 1
-          else if (pop_loss(4)) then
-            q_bin(floor(t / binwidth) + 1) = &
-              q_bin(floor(t / binwidth) + 1) + 1
-          end if
-          ! the following just outputs all decay times and types
-          ! to a file for the python to then interpret
+          ! increment the relevant bin for the histograms
           do k = 1, size(pop_loss)
             if (pop_loss(k)) then
-              ! append loss time and decay type to file here!
-              write(20, '(F10.4, a, I1)') t, " ", k
+              counts(k, floor(t / binwidth) + 1) = &
+              counts(k, floor(t / binwidth) + 1) + 1
             end if
           end do
         end if

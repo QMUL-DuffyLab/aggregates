@@ -51,6 +51,7 @@ if __name__ == "__main__":
     plt.savefig("out/pulses.pdf")
     plt.close()
     lifetimes = []
+    errors = []
     for fluence in fluences:
         print("Fluence = {:4.2E}".format(
             fluence))
@@ -109,10 +110,13 @@ if __name__ == "__main__":
             if fluence > 1E14:
                 lifetime = ((res["a_1"] * res["tau_1"] + res["a_2"] * res["tau_2"])
                         / (res["a_1"] + res["a_2"]))
+                error = fit.error(result)
             else:
                 lifetime = res["tau_1"]
+                error = result.params["tau_1"].stderr
             lifetimes.append(lifetime)
-            print("Lifetime = {} ps".format(lifetime))
+            errors.append(error)
+            print("Lifetime = {} +/- {} ps".format(lifetime, error))
             plt.figure()
             plt.subplot(2, 1, 1)
             plt.semilogy(xvals, histvals, label="hist")
@@ -126,5 +130,5 @@ if __name__ == "__main__":
 
     end_time = time.monotonic()
     print("Total time elapsed: {}".format((end_time - start_time)))
-    np.savetxt("{}/lifetimes.dat".format(path), np.array(lifetimes))
+    np.savetxt("{}/lifetimes.dat".format(path), np.column_stack((np.array(lifetimes), errors)))
     subprocess.run(['python', 'plot_tau.py', '{}'.format(path)], check=True)

@@ -66,3 +66,15 @@ def dfdt1(a_1, a_2):
 
 def dfdt2(a_1, a_2):
     return a_2 / (a_1 + a_2)
+
+def error(fit):
+    a_1 = fit.best_values["a_1"]
+    a_2 = fit.best_values["a_2"]
+    tau_1 = fit.best_values["tau_1"]
+    tau_2 = fit.best_values["tau_2"]
+    sigma = fit.covar[:4, :4]
+    # order in fit.covar is tau_1, a_1, tau_2, a_2
+    j = np.array([dfdt1(a_1, a_2), dfda1(a_1, a_2, tau_1, tau_2), dfdt2(a_1, a_2), dfda2(a_1, a_2, tau_1, tau_2)])
+    m = np.matmul(j, sigma)
+    error = np.sqrt(np.matmul(m, j.transpose()))
+    return error

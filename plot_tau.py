@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 file_path = sys.argv[1]
+print(file_path)
 exp = np.loadtxt("out/exp_lhcii_solution.dat")
 fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
         1.9E14, 3.22E14, 6.12E14, 9.48E14]
@@ -12,10 +13,13 @@ def forward(x):
     '''convert fluence to average excitons per trimer'''
     return x * 1.1E-14
 
-lifetimes = np.loadtxt("{}/lifetimes.dat".format(os.path.dirname(file_path)))
+lifetimes = np.loadtxt("{}/lifetimes.dat".format(file_path))
 
 fig, ax1 = plt.subplots()
-plt.plot(fluences, lifetimes/1000., label=r'$ \left< \tau_{\text{avg.}} \right> $', marker='o', ms=6.0, lw=3.0)
+# plt.plot(fluences, lifetimes/1000., label=r'$ \left< \tau_{\text{avg.}} \right> $', marker='o', ms=6.0, lw=3.0)
+plt.errorbar(fluences, lifetimes[:, 0]/1000., yerr=lifetimes[:, 1]/1000.,
+        label=r'$ \left< \tau_{\text{avg.}} \right> $', 
+        elinewidth=0.5, capsize=2.0, marker='o', ms=6.0, lw=3.0)
 plt.errorbar(exp[:, 0], exp[:, 1], yerr=exp[:, 2], label=r'Exp.', 
         elinewidth=0.5, capsize=2.0, marker='o', ms=6.0, lw=3.0)
 plt.grid()

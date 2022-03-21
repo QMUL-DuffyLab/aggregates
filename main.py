@@ -21,7 +21,7 @@ if __name__ == "__main__":
     r = 5.
     lattice_type = "hex"
     n_iter = 8 # 434 trimers for honeycomb
-    max_count = 5000
+    max_count = 10000
     binwidth = 25.
     rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
@@ -30,9 +30,9 @@ if __name__ == "__main__":
     # fluences = [6.12E14]
     # annihilation, pool decay, pq decay, q decay
     rates_dict = {
-     'lut_eet': Rates(20., 3800., 3800., 14., 
+     'lut_eet': Rates(20., 3600., 3600., 14., 
          7., 1., 20., np.inf, 50., [False, True, True, False], True, True),
-     'schlau_cohen': Rates(20., 3800., 3800., 14., 
+     'schlau_cohen': Rates(20., 3600., 3600., 14., 
          7., 1., 0.4, 0.4, 50., [False, True, True, False], True, True)
      }
     rates_key = 'lut_eet'

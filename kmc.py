@@ -177,11 +177,13 @@ class Iteration():
         rates_file = "{}/base_rates.dat".format(path)
         pulse_file = "{}/pulse.dat".format(path)
         np.savetxt(rates_file, self.base_rates.flatten())
-        neighbours = np.zeros((self.n_sites - 2, self.max_neighbours))
-        for i in range(self.n_sites - 2):
+        neighbours = np.zeros((self.n_sites, self.max_neighbours), dtype=int)
+        for i in range(self.n_sites):
             for j in range(len(self.aggregate.trimers[i].get_neighbours())):
-                neighbours[i][self.max_neighbours - j] = self.aggregate.trimers[i].get_neighbours()[j]
-        np.savetxt(neighbours_file, neighbours.flatten(order='F'))
+                # add 1 here because fortran's 1-indexed!
+                # also the array's np.zeros - need to distinguish
+                neighbours[i][self.max_neighbours - (j + 1)] = self.aggregate.trimers[i].get_neighbours()[j].index + 1
+        np.savetxt(neighbours_file, neighbours.flatten(order='F'), fmt='%6d')
         with open(self.params_file, 'w') as f:
             f.write("{:d}\n".format(self.n_sites))
             f.write("{:d}\n".format(self.max_neighbours))

@@ -9,7 +9,7 @@ import subprocess
 from lmfit import Model
 from scipy import signal
 import fit
-from trimer import Aggregate, theoretical_aggregate
+from trimer import check_neighbours, Aggregate, theoretical_aggregate
 from kmc import Pulse, Rates, Iteration
 
 if __name__ == "__main__":
@@ -65,7 +65,12 @@ if __name__ == "__main__":
             # note - second parameter here is the nn cutoff. set to 0 to
             # disable excitation hopping between trimers
             verbose = False
-            agg = theoretical_aggregate(r, 0., lattice_type, n_iter)
+            agg = theoretical_aggregate(r, 2.01 * r, lattice_type, n_iter)
+            for tr in agg.trimers:
+                print("Trimer {:d}: neighbours (".format(tr.index + 1), end='')
+                for tn in tr.get_neighbours():
+                    print("{:d}, ".format(tn.index + 1), end='')
+                print(").")
             n_es = []
             means = []
             stddevs = []
@@ -122,4 +127,4 @@ if __name__ == "__main__":
     end_time = time.monotonic()
     print("Total time elapsed: {}".format((end_time - start_time)))
     np.savetxt("{}/lifetimes.dat".format(path), np.array(lifetimes))
-    subprocess.run(['python', 'plot_tau.py', '{}'.format(path, rho_quenchers)], check=True)
+    subprocess.run(['python', 'plot_tau.py', '{}'.format(path)], check=True)

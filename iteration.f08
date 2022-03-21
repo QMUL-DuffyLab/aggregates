@@ -37,6 +37,16 @@ program iteration
   read(20, '(a)') rates_file
   read(20, '(a)') neighbours_file
   close(20)
+
+  ! note - rate_size is set to this because there are a maximum
+  ! of five processes that can happen on any given site that aren't
+  ! hopping (four on a pool chlorophyll, five on pq, four on q).
+  ! hence, max_neighbours + 5 is always a long enough array to hold
+  ! every possible rate on every possible site.
+  ! i actually ignore the possibility of hopping on pq though, so in
+  ! principle this could be reduced by one, but then we'd have to check
+  ! that max_neighbours is > 0 and put the extra pq rate in the middle
+  ! somewhere, and that seems pointless just to save a few bytes
   rate_size = max_neighbours + 5
   write(*, '(a, I4)')     "n_sites    = ", n_sites
   write(*, '(a, I1)')     "max neigh  = ", max_neighbours
@@ -69,6 +79,9 @@ program iteration
     close(20)
   end if
   neighbours = reshape(neighbours_temp, (/n_sites, max_neighbours/))
+  ! do j = 1, n_sites
+  !   write(*, '(7I8)') j, [(neighbours(j, k), k = 1, max_neighbours)]
+  ! end do
   allocate(base_rates((n_sites + 2) * rate_size))
   allocate(rates(rate_size))
   allocate(n_i(n_sites))
@@ -273,11 +286,15 @@ program iteration
           ! generation
           n_i(ind)  = n_i(ind)  + 1
           n_current = n_current + 1
-        else if ((process.gt.1).and.(process.lt.(rate_size - 2))) then
-          ! hop to neighbour
-          nn = neighbours(ind, process)
+        else if ((process.gt.1).and.(process.lt.(rate_size - 3))) then
+          ! hop to neighbour. -1 because of the generation rate
+          nn = neighbours(ind, process - 1)
           n_i(ind) = n_i(ind) - 1
           n_i(nn)  = n_i(nn)  + 1
+        else if (process.eq.rate_size - 3) then
+          ! there will always be an empty rate due to
+          ! there being an extra possible process on pq
+          continue
         else if (process.eq.rate_size - 2) then
           ! hop to pre-quencher
           n_i(ind)  = n_i(ind)  - 1

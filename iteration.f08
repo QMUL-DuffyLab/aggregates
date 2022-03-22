@@ -65,8 +65,6 @@ program iteration
   prefix = trim(adjustl(prefix_long))
   write(*, *) "File path = ", file_path
   write(*, *) "Prefix = ", prefix
-  write(loss_file, '(a, a, a)') file_path,&
-    prefix, "decays.dat"
   write(counts_file, '(a, a, a)') file_path,&
     prefix, "counts.dat"
 
@@ -118,7 +116,6 @@ program iteration
   allocate(quenchers(n_quenchers))
   
   call cpu_time(start_time)
-  open(file=loss_file, unit=20)
   i = 0
   ! keep iterating till we get a decent number of counts
   ! pool decays and pre-quencher decays are emissive, so
@@ -149,7 +146,6 @@ program iteration
   end do
 
   write(*, *) "]."
-  close(20)
 
   open(file=counts_file, unit=20)
   do j = 1, size(bins)

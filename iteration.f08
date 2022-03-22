@@ -252,12 +252,15 @@ program iteration
       sigma_ratio = 1.5_dp
       n_pigments = 24.0_dp
       if (t < t_pulse) then
-        t_index = int(t / dt) + 1
-        ft = pulse(t_index)
-        xsec = 1.1E-14
-        if (((1 + sigma_ratio) * n).le.n_pigments) then
-          rates(1) = xsec * fluence * ft * &
-            ((n_pigments - (1 + sigma_ratio) * n)/ n_pigments)
+        ! no generation on a quencher
+        if (rate_type.ne."Q") then
+          t_index = int(t / dt) + 1
+          ft = pulse(t_index)
+          xsec = 1.1E-14
+          if (((1 + sigma_ratio) * n).le.n_pigments) then
+            rates(1) = xsec * fluence * ft * &
+              ((n_pigments - (1 + sigma_ratio) * n)/ n_pigments)
+          end if
         end if
       else
         rates(1) = 0.0_dp
@@ -265,6 +268,9 @@ program iteration
       do k = 2, rate_size - 1
         rates(k) = rates(k) * n
       end do
+      ! this needs thinking about - max population on pq
+      ! should be 1, they should be able to annihilate with
+      ! other excitons in the corresponding pool
       ann_fac = (n * (n - 1)) / 2.0_dp
       rates(rate_size) = rates(rate_size) * ann_fac
     end function get_rates

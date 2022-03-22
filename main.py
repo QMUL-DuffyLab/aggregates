@@ -23,7 +23,7 @@ if __name__ == "__main__":
     n_iter = 8 # 434 trimers for honeycomb
     max_count = 10000
     binwidth = 25.
-    rho_quenchers = 0.1
+    rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
     fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
             1.9E14, 3.22E14, 6.12E14, 9.48E14]
@@ -86,43 +86,16 @@ if __name__ == "__main__":
             / (np.sqrt(2.) * pulse.sigma)**2)
         long_gauss = long_gauss/np.max(long_gauss)
         histvals = histvals / np.max(histvals)
-
-        weights = 1/np.sqrt(histvals + 1)
-        # if fluence > 1E14:
-        mod = Model(fit.biexprisemodel, independent_vars=('x', 'irf'))
-        pars = mod.make_params(tau_1 = 1./rates.k_ann, a_1 = 1.,
-                tau_2 = 1./rates.g_pool, a_2 = 1., y0 = 0., x0 = 0)
-        # else:
-        #     mod = Model(fit.monoexprisemodel, independent_vars=('x', 'irf'))
-        #     pars = mod.make_params(tau_1 = 1./rates.g_pool, a_1 = 1., y0 = 0., x0 = 0)
-        pars['x0'].vary = True
-        pars['y0'].vary = True
-        try:
-            result = mod.fit(histvals, params=pars, weights=weights, method='leastsq', x=xvals, irf=long_gauss)
-            print(result.fit_report())
-            res = result.best_values
-            # if fluence > 1E14:
-            lifetime = ((res["a_1"] * res["tau_1"] + res["a_2"] * res["tau_2"])
-                    / (res["a_1"] + res["a_2"]))
-            error = fit.error(result)
-            # else:
-            #     lifetime = res["tau_1"]
-            #     error = result.params["tau_1"].stderr
-            lifetimes.append(lifetime)
-            errors.append(error)
-            print("Lifetime = {} +/- {} ps".format(lifetime, error))
-            plt.figure()
-            plt.subplot(2, 1, 1)
-            plt.semilogy(xvals, histvals, label="hist")
-            plt.semilogy(xvals, result.best_fit, label="fit")
-            plt.subplot(2, 1, 2)
-            plt.plot(xvals, result.residual, label="residuals")
-            plt.savefig("{}/{}_fit.pdf".format(path, file_prefix))
-            plt.close()
-        except ValueError:
-            print("fit failed!")
+        mono_tau.append(fit.monofit(histvals, rates, xvals,
+            long_gauss, path, file_prefix))
+        bi_tau.append(fit.bifit(histvals, rates, xvals,
+            long_gauss, path, file_prefix))
+        tri_tau.append(fit.trifit(histvals, rates, xvals,
+            long_gauss, path, file_prefix))
 
     end_time = time.monotonic()
     print("Total time elapsed: {}".format((end_time - start_time)))
-    np.savetxt("{}/lifetimes.dat".format(path), np.column_stack((np.array(lifetimes), errors)))
+    np.savetxt("{}/mono_tau.dat".format(path), np.array(mono_tau))
+    np.savetxt("{}/bi_tau.dat".format(path), np.array(bi_tau))
+    np.savetxt("{}/tri_tau.dat".format(path), np.array(tri_tau))
     subprocess.run(['python', 'plot_tau.py', '{}'.format(path)], check=True)

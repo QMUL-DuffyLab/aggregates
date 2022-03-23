@@ -23,7 +23,7 @@ if __name__ == "__main__":
     n_iter = 8 # 434 trimers for honeycomb
     max_count = 10000
     binwidth = 25.
-    rho_quenchers = 0.0
+    rho_quenchers = 0.1
     # fluences given here as photons per pulse per unit area - 485nm
     fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
             1.9E14, 3.22E14, 6.12E14, 9.48E14]

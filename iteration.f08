@@ -227,7 +227,7 @@ program iteration
       implicit none
       real(dp) :: rates(rate_size)
       character(4) :: rate_type
-      integer(ip) :: ind, start, end_, n, t_index, k, n_mult
+      integer(ip) :: ind, start, end_, n, t_index, k, n_comb
       real(dp) :: t, ft, xsec, sigma_ratio, n_pigments, ann_fac
       if (trim(rate_type).eq."PQ") then
         start = ((n_sites) * rate_size) + 1
@@ -253,7 +253,8 @@ program iteration
       n_pigments = 24.0_dp
       if (t < t_pulse) then
         ! no generation on a quencher
-        if (rate_type.ne."Q") then
+        if ((rate_type.eq."POOL").or.&
+          ((rate_type.eq."PQ").and.(n.lt.1))) then
           t_index = int(t / dt) + 1
           ft = pulse(t_index)
           xsec = 1.1E-14
@@ -267,11 +268,30 @@ program iteration
       end if
       do k = 2, rate_size - 1
         rates(k) = rates(k) * n
+        ! max population on pq/q should be 1
+        ! almost sufficient to just do
+        ! (is_quencher(ind).and.(n_pq(ind).eq.1))
+        ! but i don't think this prevents n_q from > 1
+        ! so i think we have to have all 3 here
+        if (rate_type.eq."POOL".and.&
+          (is_quencher(ind)).and.(n_pq(ind).eq.1)) then
+            rates(rate_size - 2) = 0.0_dp
+        else if (rate_type.eq."PQ".and.&
+          (is_quencher(ind)).and.(n_q(ind).eq.1)) then
+            rates(rate_size - 2) = 0.0_dp
+        else if (rate_type.eq."Q".and.&
+          (is_quencher(ind)).and.(n_pq(ind).eq.1)) then
+            rates(rate_size - 2) = 0.0_dp
+        end if
       end do
-      ! this needs thinking about - max population on pq
-      ! should be 1, they should be able to annihilate with
+      ! they should be able to annihilate with
       ! other excitons in the corresponding pool
-      ann_fac = (n * (n - 1)) / 2.0_dp
+      if ((is_quencher(ind)).and.(rate_type.ne."Q")) then
+        n_comb = n_i(ind) + n_pq(ind)
+        ann_fac = (n_comb * (n_comb - 1)) / 2.0_dp
+      else
+        ann_fac = (n * (n - 1)) / 2.0_dp
+      end if
       rates(rate_size) = rates(rate_size) * ann_fac
     end function get_rates
 
@@ -308,7 +328,19 @@ program iteration
           pop_loss(2) = .true.
         else if (process.eq.rate_size) then
           ! annihilation
-          n_i(ind)  = n_i(ind)  - 1
+          ! if this is a quencher, pool excitons can
+          ! annihilate with pq excitons. this assumes
+          ! the pre-quencher is always another chl!
+          if (is_quencher(ind)) then
+            choice = randint(n_pq(ind) + n_i(ind))
+            if (choice.eq.n_pq(ind)) then
+              n_pq(ind) = n_pq(ind) - 1
+            else
+              n_i(ind)  = n_i(ind)  - 1
+            end if
+          else
+            n_i(ind)  = n_i(ind)  - 1
+          end if
           n_current = n_current - 1
           pop_loss(1) = .true.
         else
@@ -335,7 +367,12 @@ program iteration
           pop_loss(3) = .true.
         else if (process.eq.rate_size) then
           ! annihilation
-          n_pq(ind) = n_pq(ind) - 1
+          choice = randint(n_pq(ind) + n_i(ind))
+          if (choice.eq.n_pq(ind)) then
+            n_pq(ind) = n_pq(ind) - 1
+          else
+            n_i(ind)  = n_i(ind)  - 1
+          end if
           n_current = n_current - 1
           pop_loss(1) = .true.
         else
@@ -363,8 +400,12 @@ program iteration
           pop_loss(1) = .true.
         end if
       end if
+      if ((n_pq(ind).gt.1).or.(n_q(ind).gt.1)) then
+        write(*, *) "move set pq/q occupancy to > 1!!!", n_i(ind), n_pq(ind), n_q(ind), ind, rate_type, rates, process
+        stop
+      end if
       if ((n_i(ind).lt.0).or.(n_pq(ind).lt.0).or.(n_q(ind).lt.0)) then
-        write(*, *) "move set occupancy to < 0!!!", n_i(ind), n_pq(ind), n_q(ind)
+        write(*, *) "move set occupancy to < 0!!!", n_i(ind), n_pq(ind), n_q(ind), ind, rate_type, rates, process
         stop
       end if
     end subroutine move

@@ -23,16 +23,22 @@ if __name__ == "__main__":
     n_iter = 8 # 434 trimers for honeycomb
     max_count = 10000
     binwidth = 25.
-    rho_quenchers = 0.1
+    rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
     fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
             1.9E14, 3.22E14, 6.12E14, 9.48E14]
     # annihilation, pool decay, pq decay, q decay
     rates_dict = {
-     'lut_eet': Rates(20., 3600., 3600., 14., 
+     'lut_eet': Rates(20., 3600., 3600., 14.,
          7., 1., 20., np.inf, 50., [False, True, True, False], True, True),
-     'schlau_cohen': Rates(20., 3600., 3600., 14., 
-         7., 1., 0.4, 0.4, 50., [False, True, True, False], True, True)
+     'schlau_cohen': Rates(20., 3600., 3600., 14.,
+         7., 1., 0.4, np.inf, 50., [False, True, True, False], True, True),
+     'mennucci': Rates(20., 3600., 3600., 14.,
+         7., 1., 29., 43., 50., [False, True, True, False], True, True),
+     'holzwarth': Rates(20., 3600., 3600., 833.,
+         180., 550., 260., 3300., 50., [False, True, False, False], True, True),
+     'exciton': Rates(20., 3600., 40., 40.,
+         7., 1., 1000., 1000., 50., [False, True, False, False], True, True),
      }
     rates_key = 'lut_eet'
     rates = rates_dict[rates_key]

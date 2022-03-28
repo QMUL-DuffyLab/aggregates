@@ -258,6 +258,9 @@ program iteration
           t_index = int(t / dt) + 1
           ft = pulse(t_index)
           xsec = 1.1E-14
+          if (max_neighbours.gt.0) then
+            xsec = xsec / float(n_sites)
+          end if
           if (((1 + sigma_ratio) * n).le.n_pigments) then
             rates(1) = xsec * fluence * ft * &
               ((n_pigments - (1 + sigma_ratio) * n)/ n_pigments)

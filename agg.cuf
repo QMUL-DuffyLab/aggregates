@@ -1,0 +1,139 @@
+module agg
+  use curand_device
+  use iso_c_binding
+  implicit none
+  integer, parameter :: dp = c_double
+  integer, parameter :: short = c_short
+  integer, parameter :: ip = c_int
+  real, parameter :: pi = 3.1415926535
+  logical :: pool_pq_ann
+
+  contains
+
+    attributes(device) function randint(h, upper) result(res)
+      implicit none
+      type(curandStateXORWOW) :: h
+      integer :: res, upper
+      real :: r
+      r = curand_uniform(h)
+      do while (r.eq.0.0)
+        r = curand_uniform(h)
+      end do
+      res = ceiling(upper * r)
+    end function randint
+
+    attributes(global) subroutine gpu_init(q, n_sites, n_quenchers,&
+      n_bins, sample_offset)
+      implicit none
+      ! logical :: iq(n_sites)
+      integer :: q(n_quenchers, *)
+      integer, value :: n_sites, n_quenchers, n_bins, sample_offset
+      integer, shared :: n_i(n_sites), n_pq(n_sites), n_q(n_sites),&
+        quenchers(n_quenchers), block_counts(4, n_bins)
+      logical, shared :: is_quencher(n_sites)
+      type(curandStateXORWOW) :: h
+      integer(8) :: seed, seq, offset
+      integer :: iam, set_q, choice
+      logical :: test = .false.
+      
+      n_i = 0
+      n_pq = 0
+      n_q = 0
+      quenchers = 0
+      is_quencher = .false.
+      block_counts = 0
+
+      ! each sample should be given a unique seed
+      ! and each thread a unique sequence number
+      iam = threadIdx%x
+      seed = sample_offset * 64 + 12345
+      seq = iam + (blockIdx%x * blockDim%x)
+      offset = 0
+      call curand_init(seed, seq, offset, h)
+
+      ! set n_quenchers of the sites as quenching sites randomly per block
+      set_q = 0
+      do while ((n_quenchers - set_q).gt.0)
+        if (iam.le.(n_quenchers - set_q)) then
+          choice = randint(h, n_quenchers)
+          do while (is_quencher(choice))
+            choice = randint(h, n_quenchers)
+          end do
+          is_quencher(choice) = .true.
+          quenchers(iam) = choice
+        end if
+        ! different threads might have picked the same site
+        call syncthreads()
+        set_q = count(is_quencher)
+      end do
+
+      iam = blockIdx%x
+      q(:, iam) = quenchers
+      ! iq = is_quencher
+
+      ! if (count(is_quencher).ne.n_quenchers) then
+      !   ! write(*, *) "Block ", blockIdx%x, " has ", count(is_quencher),&
+      !   !   " quenchers set with n_quenchers = ", n_quenchers
+      !   write(*, *) blockIdx%x, count(is_quencher), n_quenchers
+      ! end if
+
+      ! if (iam.eq.1) then
+      !   write(*, *) blockIdx%x, quenchers
+      ! end if
+
+      ! rates = get_rates(iam, t, rate_type)
+
+    end subroutine gpu_init
+
+    ! attributes(global) subroutine allocate_quenchers(h)
+    !   ! set n_quenchers trimers as quenchers randomly
+    !   implicit none
+    !   integer :: i, choice
+    !   do i = 1, n_quenchers
+    !      choice = curand_uniform()
+    !      do while (is_quencher(choice))
+    !        choice = curand_uniform()
+    !      end do
+    !      is_quencher(choice) = .true.
+    !      quenchers(i) = choice
+    !   end do
+    ! end subroutine allocate_quenchers
+
+end module agg
+
+program cuda_agg
+  use cudafor
+  use agg
+  implicit none
+  ! real, allocatable, constant :: base_rates(:)
+  integer :: n_sites, n_quenchers, n_bins, i, j, share
+  ! integer :: counts(n_bins)
+  integer, dimension(:, :), allocatable, device :: quenchers_d
+  logical, dimension(:, :), allocatable, device :: is_quencher_d
+  logical, dimension(:, :), allocatable :: is_quencher
+  integer, dimension(:, :), allocatable :: quenchers
+  type(dim3) :: grid, tBlock
+
+  n_sites = 100
+  n_quenchers = 20
+  n_bins = 100
+  tBlock = dim3(256,1,1)
+  grid = dim3(ceiling(real(512)/tBlock%x),1,1)
+  share =  4 * ((3 * n_sites) + n_quenchers + (4 * n_bins))
+
+  allocate(quenchers_d(n_quenchers, grid%x))
+  allocate(quenchers(n_quenchers, grid%x))
+  allocate(is_quencher_d(n_sites, grid%x))
+  allocate(is_quencher(n_sites, grid%x))
+  do i = 1, 2
+    quenchers = 0
+    call gpu_init<<<grid, tBlock, share>>>(quenchers_d, n_sites,&
+      n_quenchers, n_bins, i - 1)
+    quenchers = quenchers_d
+    do j = 1, grid%x
+      write(*, '(a, I1)') "j = ", j
+      write(*, '(20I3)') quenchers(:, j)
+    end do
+  end do
+
+end program cuda_agg

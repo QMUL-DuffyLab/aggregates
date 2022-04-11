@@ -4,5 +4,7 @@ components/*
 frames/*
 out/*
 f_iter
+agg_cuda
 __pycache__/*
 *.ipynb*
+*.mod

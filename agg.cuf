@@ -23,26 +23,46 @@ module agg
       res = ceiling(upper * r)
     end function randint
 
-    attributes(global) subroutine gpu_init(q, n_sites, n_quenchers,&
-      n_bins, sample_offset)
+    attributes(global) subroutine run_mc(c, dt, t_pulse, max_time, binwidth,&
+      pu, br, nb, fluence,&
+      n_sites, n_quenchers, n_bins, rate_size, sample_offset)
       implicit none
-      integer :: q(n_quenchers, *)
+      integer :: c(4, n_bins, *)
       integer, value :: n_sites, n_quenchers, n_bins, rate_size, sample_offset
+      real, value :: dt, t_pulse, max_time, binwidth, fluence
+      real :: br(rate_size * (n_sites + 2))
+      real :: pu(int(t_pulse / dt))
+      integer(2) :: nb(n_sites, rate_size - 5)
       integer, shared :: n_i(n_sites), n_pq(n_sites), n_q(n_sites)
-      logical, shared :: is_quencher(n_sites)
-      integer, shared :: quenchers(n_quenchers), block_counts(4, n_bins)
-      ! real, shared :: base_rates(n_sites * rate_size)
+      integer(2), shared :: neighbours(n_sites, rate_size - 5)
+      logical(1), shared :: is_quencher(n_sites)
+      integer(2), shared :: quenchers(n_quenchers)
+      integer, shared :: block_counts(4, n_bins)
+      real, shared :: base_rates(rate_size * (n_sites + 2)),&
+        pulse(int(t_pulse / dt))
+      real, shared :: t
+      integer, shared :: n_current
+      real :: rates(rate_size), probs(rate_size)
       type(curandStateXORWOW) :: h
       integer(8) :: seed, seq, offset
-      integer :: iam, ib, set_q, choice
-      
-      n_i = 0
-      n_pq = 0
-      n_q = 0
-      quenchers = 0
-      is_quencher = .false.
-      block_counts = 0
+      integer :: i, j, iam, set_q, choice
 
+      ! can maybe do these with a straight assignment
+      ! could be parallelised also but i'm lazy
+      do i = 1, n_sites
+        do j = 1, rate_size - 5
+          neighbours(i, j) = nb(i, j)
+        end do
+      end do
+
+      do i = 1, size(br)
+        base_rates(i) = br(i)
+      end do
+
+      do i = 1, int(t_pulse / dt)
+        pulse(i) = pu(i)
+      end do
+      
       ! each sample should be given a unique seed
       ! and each thread a unique sequence number
       iam = threadIdx%x
@@ -52,6 +72,8 @@ module agg
       call curand_init(seed, seq, offset, h)
 
       ! set n_quenchers of the sites as quenching sites randomly per block
+      quenchers = 0
+      is_quencher = .false.
       set_q = 0
       do while ((n_quenchers - set_q).gt.0)
         if (iam.le.(n_quenchers - set_q)) then
@@ -67,101 +89,488 @@ module agg
         set_q = count(is_quencher)
       end do
 
-      ib = blockIdx%x
-      if (iam.le.n_quenchers) then
-        q(iam, ib) = quenchers(iam)
+      if (iam.eq.1) then
+        n_i = 0
+        n_pq = 0
+        n_q = 0
+        block_counts = 0
+        n_current = 0
+        t = 0.0
       end if
+      call syncthreads()
 
-      ! rates = get_rates(iam, t, rate_type)
-
-    end subroutine gpu_init
-
-    attributes(host) subroutine check_stats(grid_size, n_iter)
-      implicit none
-      ! real, allocatable, constant :: base_rates(:)
-      integer :: n_sites, n_quenchers, n_bins, i, j, share,&
-        grid_size, n_iter
-      real :: start_time, end_time, mean, var, residue
-      ! integer :: counts(n_bins)
-      integer, dimension(:, :), allocatable, device :: quenchers_d
-      integer, dimension(:, :), allocatable :: quenchers
-      real, dimension(:, :), allocatable :: q_sum
-      type(dim3) :: grid, tBlock
-
-      call cpu_time(start_time)
-
-      n_sites = 100
-      n_quenchers = 10
-      n_bins = 100
-      tBlock = dim3(256,1,1)
-      ! grid = dim3(ceiling(real(512)/tBlock%x),1,1)
-      grid = dim3(grid_size,1,1)
-      share =  4 * ((4 * n_sites) + n_quenchers + (4 * n_bins))
-      mean = (1.0 / 2.0) * (n_sites + 1)
-      ! this is the expected variance of each
-      ! quencher array after 10000 iterations
-      var = (1.0 / (12.0 * n_quenchers * n_iter)) * (n_sites - 1)**2
-
-      allocate(quenchers_d(n_quenchers, grid%x))
-      allocate(quenchers(n_quenchers, grid%x))
-      allocate(q_sum(n_quenchers, grid%x))
-      q_sum = 0.0
-      do i = 1, n_iter
-        quenchers = 0
-        call gpu_init<<<grid, tBlock, share>>>(quenchers_d, n_sites,&
-          n_quenchers, n_bins, i - 1)
-        quenchers = quenchers_d
-        q_sum = q_sum + float(quenchers)
+      do while (t.lt.t_pulse)
+        call mc_step(t, dt, binwidth, rate_size, quenchers, is_quencher,&
+          n_i, n_pq, n_q, pulse, t_pulse, n_current, fluence,&
+          base_rates, neighbours, block_counts, h)
+        call syncthreads()
+        if (iam.eq.1) then
+          t = t + dt
+        end if
       end do
-
-      call cpu_time(end_time)
-      write(*, *) "Grid size: ", grid%x
-      write(*, *) "Total iterations: ", grid%x * n_iter
-      write(*, *) "Time elapsed: ", end_time - start_time
-      write(*, *) "Time per iteration: ", (end_time - start_time) / float(grid%x * n_iter)
-      write (*, *) "Expected mean: ", mean
-      write (*, *) "Variance: ", var
-
-      q_sum = q_sum / n_iter
-      write(*, *)
-      write(*, *) "STATS:"
-      write(*, *)
-      do i = 1, grid%x
-        ! write(*, '(a, I3)') "i = ", i
-        residue = 0.0
-        do j = 1, n_quenchers
-          ! write (*, '(F8.3, a)') q_sum(j, i), " "
-          residue = residue + q_sum(j, i)
-        end do
-        residue = mean - (residue / n_quenchers)
-        if ((residue**2).gt.var) then
-          write(*, *) "i = ", i, " res = ", residue**2
+      do while ((n_current.gt.0).and.(t.lt.max_time))
+        call mc_step(t, dt, binwidth, rate_size, quenchers, is_quencher,&
+          n_i, n_pq, n_q, pulse, t_pulse, n_current, fluence,&
+          base_rates, neighbours, block_counts, h)
+        call syncthreads()
+        if (iam.eq.1) then
+          t = t + dt
         end if
       end do
 
-      ! don't think deallocations are actually necessary?
-      ! i think fortran does the cleanup for you. check with valgrind
-      deallocate(quenchers_d)
-      deallocate(quenchers)
-      deallocate(q_sum)
+      ! this can be easily parallelised as well. stop being lazy
+      do i = 1, n_bins
+        do j = 1, 4
+          c(j, i, blockIdx%x) = block_counts(j, i)
+          ! write(*, *) j, i, block_counts(j, i)
+        end do
+      end do
 
-    end subroutine check_stats
+    end subroutine run_mc
+
+    attributes(device) subroutine mc_step(t, dt, binwidth, rate_size,&
+      quenchers, is_quencher, n_i, n_pq, n_q, pulse, t_pulse, n_current,&
+      fluence, base_rates, neighbours, block_counts, h)
+      implicit none
+      integer, value :: rate_size
+      real, value :: t, dt, binwidth
+      integer, dimension(:) :: n_i, n_pq, n_q
+      integer(2), dimension(:) :: quenchers
+      integer(2), dimension(:, :) :: neighbours
+      integer, dimension(:, :) :: block_counts
+      real :: rates(rate_size), probs(rate_size), rand, t_pulse, fluence
+      real, dimension(:) :: base_rates, pulse
+      integer :: n_quenchers, i, j, k, ind, trimer,&
+        nonzero, choice, ri, n_attempts, n_current, n_sites
+      integer(1) :: rate_type
+      logical(1) :: pop_loss(4), is_quencher(n_sites)
+      type(curandStateXORWOW) :: h
+      n_quenchers = size(quenchers)
+      n_sites = size(n_i)
+
+      ! note - this makes sure we still attempt every site
+      ! even if the total number is more than one block
+      n_attempts = n_sites + (2 * n_quenchers)
+      do i = 1, ceiling(real(n_attempts)/blockDim%x)
+
+        pop_loss = (/ .false., .false., .false., .false. /)
+        ind = threadIdx%x + (blockDim%x * (i - 1))
+        if (ind.le.n_sites) then
+          trimer = ind
+          rate_type = 1 ! pool
+        else if ((ind.gt.n_sites).and.&
+          (ind.le.(n_sites + n_quenchers))) then
+          trimer = quenchers(ind - n_sites)
+          rate_type = 2 ! pq
+        else if (ind.gt.(n_sites + n_quenchers)) then
+          trimer = quenchers(ind - (n_sites + n_quenchers))
+          rate_type = 3 ! q
+        end if
+
+        call syncthreads()
+        rates = get_rates(trimer, t, dt, rate_type, rate_size, fluence,&
+          n_i, n_pq, n_q, base_rates, pulse, t_pulse, is_quencher)
+        ! if ((threadIdx%x.eq.1).and.(blockIdx%x.eq.1)) then
+        !   write (*, *) t
+        !   do j = 1, size(quenchers)
+        !     write (*, *) quenchers(j)
+        !   end do
+        ! end if
+
+        ! four possible moves: generation, hop, decay, annihilation
+        do j = 1, 4
+          ! pick at random - stats
+          ri = randint(h, 4)
+          pop_loss = .false.
+          probs = [(rates(k) * exp(-1.0 * rates(k) * dt), &
+            k = 1, rate_size)]
+          ! do k = 1, rate_size
+          !   if (rates(k).gt.0.0) then
+          !     write (*, *) j, ri, threadIdx%x, blockIdx%x,&
+          !       trimer, k, rates(k), probs(k)
+          !   end if
+          ! end do
+          select case (ri)
+            case (1) ! gen
+              choice = 1
+            case (2) ! hop
+              choice = randint(h, rate_size - 3) + 1
+            case (3) ! decay
+              choice = rate_size - 1
+            case (4) ! annihilation
+              choice = rate_size
+          end select
+
+          if (probs(choice).gt.0.0) then
+            rand = curand_uniform(h)
+            if (rand.lt.probs(choice)) then
+              ! successful move
+              ! write(*, *) "successful move", t, blockIdx%x, trimer, choice
+              call move(trimer, choice, pop_loss, rate_type, rate_size,&
+                n_i, n_pq, n_q, neighbours, n_current, is_quencher, h)
+            end if
+          end if
+
+          ! population on each site might have changed
+          call syncthreads()
+          rates = get_rates(trimer, t, dt, rate_type, rate_size, fluence,&
+          n_i, n_pq, n_q, base_rates, pulse, t_pulse, is_quencher)
+
+          if (any(pop_loss)) then
+            ! increment the relevant bin for the histograms
+            write(*, *) "pop loss", n_current
+            do k = 1, size(pop_loss)
+              if (pop_loss(k)) then
+                ind = floor(t / binwidth)
+                block_counts(k, ind + 1) = &
+                  atomicadd(block_counts(k, ind + 1), 1)
+              end if
+            end do
+          end if
+        end do
+
+      call syncthreads()
+      end do
+
+    end subroutine mc_step
+
+    attributes(device) subroutine move(ind, process, pop_loss, rate_type,&
+        rate_size, n_i, n_pq, n_q, neighbours, n_current, is_quencher, h)
+      implicit none
+      integer(1) :: rate_type
+      integer :: ind, process, k, nn, choice, n_sites, rate_size, n_current
+      integer, dimension(:) :: n_i, n_pq, n_q
+      integer(2), dimension(:, :) :: neighbours
+      logical(1) :: pop_loss(4), is_quencher(n_sites)
+      type(curandStateXORWOW) :: h
+
+      n_sites = size(n_i)
+      if (rate_type.eq.1) then
+        ! normal trimer
+        if (process.eq.1) then
+          ! generation
+          n_i(ind)  = atomicadd(n_i(ind),  1)
+          n_current = atomicadd(n_current, 1)
+          write (*, *) "generation", blockIdx%x, ind, n_current
+        else if ((process.gt.1).and.(process.lt.(rate_size - 3))) then
+          ! hop to neighbour. -1 because of the generation rate
+          nn = neighbours(ind, process - 1)
+          n_i(ind) = atomicsub(n_i(ind), 1)
+          n_i(nn)  = atomicadd(n_i(nn),  1)
+          write (*, *) "hop"
+        else if (process.eq.rate_size - 3) then
+          ! there will always be an empty rate due to
+          ! there being an extra possible process on pq
+          continue
+        else if (process.eq.rate_size - 2) then
+          ! hop to pre-quencher
+          n_i(ind)  = atomicsub(n_i(ind),  1)
+          n_pq(ind) = atomicadd(n_pq(ind), 1)
+          write (*, *) "po->pq"
+        else if (process.eq.rate_size - 1) then
+          ! decay
+          n_i(ind)   = atomicsub(n_i(ind),  1)
+          n_current  = atomicsub(n_current,  1)
+          pop_loss(2) = .true.
+          write (*, *) "pool decay"
+        else if (process.eq.rate_size) then
+          ! annihilation
+          ! if this is a quencher, pool excitons can
+          ! annihilate with pq excitons. this assumes
+          ! the pre-quencher is always another chl!
+          if (is_quencher(ind)) then
+            choice = randint(h, int(n_pq(ind) + n_i(ind)))
+            if (choice.eq.n_pq(ind)) then
+              n_pq(ind) = atomicsub(n_pq(ind), 1)
+            else
+              n_i(ind) = atomicsub(n_i(ind), 1)
+            end if
+          else
+            n_i(ind) = atomicsub(n_i(ind), 1)
+          end if
+          n_current  = atomicsub(n_current, 1)
+          pop_loss(1) = .true.
+          write (*, *) "pool ann"
+        end if
+      else if (rate_type.eq.2) then
+        ! pre-quencher
+        if (process.eq.1) then
+          ! generation
+          n_pq(ind)  = atomicadd(n_pq(ind), 1)
+          n_current  = atomicadd(n_current, 1)
+          write (*, *) "pq gen"
+        else if (process.eq.(rate_size - 3)) then
+          ! hop back to pool trimer
+          n_pq(ind)  = atomicsub(n_pq(ind), 1)
+          n_i(ind)   = atomicadd(n_i(ind),  1)
+          write (*, *) "pq->po"
+        else if (process.eq.rate_size - 2) then
+          ! hop to quencher
+          n_pq(ind)  = atomicsub(n_pq(ind), 1)
+          n_q(ind)   = atomicadd(n_q(ind),  1)
+          write (*, *) "pq->q"
+        else if (process.eq.rate_size - 1) then
+          ! pq decay
+          n_pq(ind)  = atomicsub(n_pq(ind), 1)
+          n_current  = atomicsub(n_current, 1)
+          pop_loss(3) = .true.
+          write (*, *) "pq decay"
+        else if (process.eq.rate_size) then
+          ! annihilation
+          choice = randint(h, n_pq(ind) + n_i(ind))
+          if (choice.eq.n_pq(ind)) then
+            n_pq(ind)  = atomicsub(n_pq(ind), 1)
+          else
+            n_i(ind)  = atomicsub(n_i(ind), 1)
+          end if
+          n_current  = atomicsub(n_current, 1)
+          pop_loss(1) = .true.
+          write (*, *) "pq ann"
+        end if
+      else if (rate_type.eq.3) then
+        ! quencher
+        if (process.eq.0) then
+          ! generation
+          n_q(ind)  = n_q(ind)  + 1
+          n_current = n_current + 1
+          n_q(ind)   = atomicadd(n_q(ind),  1)
+          n_current  = atomicadd(n_current, 1)
+          write (*, *) "q gen"
+        else if (process.eq.(rate_size - 2)) then
+          ! hop back to pre-quencher
+          n_q(ind)  = atomicsub(n_q(ind),  1)
+          n_pq(ind) = atomicadd(n_pq(ind), 1)
+          write (*, *) "q->pq"
+        else if (process.eq.rate_size - 1) then
+          ! q decay
+          n_q(ind)  = atomicsub(n_q(ind),  1)
+          n_current = atomicsub(n_current, 1)
+          pop_loss(4) = .true.
+          write (*, *) "q decay"
+        else if (process.eq.rate_size) then
+          ! annihilation
+          n_q(ind)  = atomicsub(n_q(ind),  1)
+          n_current = atomicsub(n_current, 1)
+          pop_loss(1) = .true.
+          write (*, *) "q ann"
+        end if
+      end if
+    end subroutine move
+
+    attributes(device) function get_rates(ind, t, dt,&
+      rate_type, rate_size, fluence,&
+      n_i, n_pq, n_q, base_rates, pulse, t_pulse, is_quencher) result(rates)
+      ! return a set of rates depending on which trimer
+      ! we're on and whether it's a quencher etc.
+      implicit none
+      integer :: rate_size
+      real :: rates(rate_size)
+      real, dimension(:) :: base_rates, pulse
+      integer, dimension(:) :: n_i, n_pq, n_q
+      integer(1) :: rate_type
+      logical(1), dimension(:) :: is_quencher
+      integer :: ind, start, end_, n, t_index, k, n_comb, n_sites
+      real :: t, t_pulse, dt, ft, fluence,&
+        xsec, sigma_ratio, n_pigments, ann_fac
+      n_sites = size(n_i)
+
+      ! if ((threadIdx%x.eq.1).and.(blockIdx%x.eq.1)) then
+      !   write(*, *) t, dt, t / dt, int(t / dt), t_index
+      ! end if
+      ! if (n_i(ind).gt.0) then
+      !   write(*, *) ind, threadIdx%x, blockIDx%x, n_i(ind), rates(rate_size - 1)
+      ! end if
+      if (rate_type.eq.2) then
+        start = ((n_sites) * rate_size) + 1
+        end_ = start + rate_size - 1
+        n = n_pq(ind)
+      else if (rate_type.eq.3) then
+        start = ((n_sites + 1) * rate_size) + 1
+        end_ = start + rate_size - 1
+        n = n_q(ind)
+      else if (rate_type.eq.1) then
+        start = ((ind - 1) * rate_size) + 1
+        end_ = start + rate_size - 1
+        n = n_i(ind)
+      end if
+      rates = base_rates(start:end_)
+      if (t < t_pulse) then
+        ! no generation on a quencher
+        if ((rate_type.eq.1).or.&
+          ((rate_type.eq.2).and.(n.lt.1))) then
+          sigma_ratio = 1.5_dp
+          n_pigments = 24.0_dp
+          t_index = int(t / dt) + 1
+          ft = pulse(t_index)
+          xsec = 1.1E-14
+          if ((rate_size - 5).gt.0) then
+            xsec = xsec / float(n_sites)
+          end if
+          if (((1 + sigma_ratio) * n).le.n_pigments) then
+            rates(1) = xsec * fluence * ft * &
+              ((n_pigments - (1 + sigma_ratio) * n)/ n_pigments)
+          end if
+        end if
+      else
+        rates(1) = 0.0_dp
+      end if
+      do k = 2, rate_size - 1
+        if (.not.is_quencher(ind)) then
+          rates(k) = 0.0
+        end if
+        if (rate_type.eq.1.and.&
+          (is_quencher(ind)).and.(n_pq(ind).eq.1)) then
+            rates(rate_size - 2) = 0.0_dp
+        else if (rate_type.eq.2.and.&
+          (is_quencher(ind)).and.(n_q(ind).eq.1)) then
+            rates(rate_size - 2) = 0.0_dp
+        else if (rate_type.eq.3.and.&
+          (is_quencher(ind)).and.(n_pq(ind).eq.1)) then
+            rates(rate_size - 2) = 0.0_dp
+        end if
+        rates(k) = rates(k) * n
+      end do
+      ! they should be able to annihilate with
+      ! other excitons in the corresponding pool
+      if ((is_quencher(ind)).and.(rate_type.ne.3)) then
+        n_comb = n_i(ind) + n_pq(ind)
+        ann_fac = (n_comb * (n_comb - 1)) / 2.0_dp
+      else
+        ann_fac = (n * (n - 1)) / 2.0_dp
+      end if
+      rates(rate_size) = rates(rate_size) * ann_fac
+    end function get_rates
 
 end module agg
 
 program cuda_agg
+  use iso_fortran_env
   use cudafor
   use agg
   implicit none
-  real, allocatable, pinned :: base_rates(:)
-  ! integer :: counts(n_bins)
-  integer :: grid_size, n_iter, share_size
+  integer :: i, j, k, grid_size, n_bins, n_sites, n_quenchers,&
+    max_neighbours, rate_size, share_size, sample_offset, max_count
+  real :: dt, rho_q, fluence, mu, fwhm, max_time, sigma, t_pulse, binwidth
+  type(dim3) :: grid, tBlock
+  integer, dimension(:, :, :), allocatable :: counts
+  integer, dimension(:, :, :), allocatable, device :: counts_d
+  integer, dimension(:), allocatable :: neighbours_temp
+  integer(2), dimension(:, :), allocatable, device :: neighbours
+  real, dimension(:), allocatable :: bins, base_rates, pulse
+  real, dimension(:), allocatable, device :: base_rates_d, pulse_d
+  character(len=200) :: params_file, rates_file, neighbours_file,&
+    counts_file, prefix_long
+  character(len=:), allocatable :: file_path, prefix
 
-  ! share_size = 4 * n_sites + 4 * (n_quenchers + &
-  !             (4 * n_bins) + (n_sites * rate_size))
+  call get_command_argument(1, params_file)
+  open(file=params_file, unit=20)
+  read(20, *) n_sites
+  read(20, *) max_neighbours
+  read(20, *) rho_q
+  read(20, *) fluence
+  read(20, *) mu
+  read(20, *) fwhm
+  read(20, *) binwidth
+  read(20, *) max_count
+  read(20, '(a)') rates_file
+  read(20, '(a)') neighbours_file
+  close(20)
 
-  grid_size = 5
-  n_iter = 1000
-  call check_stats(grid_size, n_iter)
+  ! note - rate_size is set to this because there are a maximum
+  ! of five processes that can happen on any given site that aren't
+  ! hopping (four on a pool chlorophyll, five on pq, four on q).
+  ! hence, max_neighbours + 5 is always a long enough array to hold
+  ! every possible rate on every possible site.
+  rate_size = max_neighbours + 5
+  n_quenchers = int(n_sites * rho_q)
+
+  write(*, '(a, I4)')     "n_sites    = ", n_sites
+  write(*, '(a, I1)')     "max neigh  = ", max_neighbours
+  write(*, '(a, F8.3)')   "rho_q      = ", rho_q
+  write(*, '(a, ES10.3)') "fluence    = ", fluence
+  write(*, '(a, F8.3)')   "mu         = ", mu
+  write(*, '(a, F8.3)')   "fwhm       = ", fwhm
+  write(*, '(a, F8.3)')   "binwidth   = ", binwidth
+  write(*, '(a, I8)')     "max count  = ", max_count
+  write(*, '(a, a)')      "rate file  = ", rates_file
+  write(*, '(a, a)')      "neigh file = ", neighbours_file
+
+  i = scan(rates_file, "/\\", .true.)
+  file_path = rates_file(:i)
+  write(prefix_long, '(F4.2, a, ES8.2, a)') rho_q, "_", fluence, "_"
+  prefix = trim(adjustl(prefix_long))
+  write(*, *) "File path = ", file_path
+  write(*, *) "Prefix = ", prefix
+  write(counts_file, '(a, a, a)') file_path,&
+    prefix, "counts.dat"
+
+  allocate(base_rates(rate_size * (n_sites + 2)))
+  open(file=rates_file, unit=20)
+  read(20, *) base_rates
+  close(20)
+  base_rates_d = base_rates
+
+  ! fortran's fine with 0-sized arrays so this is okay
+  if (max_neighbours.ne.0) then
+    allocate(neighbours_temp(n_sites * max_neighbours))
+    allocate(neighbours(n_sites, max_neighbours))
+    open(file=neighbours_file, unit=20)
+    read(20, *) neighbours_temp
+    close(20)
+    neighbours = reshape(neighbours_temp, (/n_sites, max_neighbours/))
+  else
+    allocate(neighbours(n_sites, 1))
+    neighbours = 0
+  end if
+
+  dt = 1.0
+  t_pulse = 2.0_dp * mu
+  allocate(pulse_d(int(t_pulse / dt)))
+  sigma = fwhm / (2.0_dp * (sqrt(2.0_dp * log(2.0_dp))))
+  do i = 1, int(t_pulse / dt)
+    pulse_d(i) = 1.0_dp / (sigma * sqrt(2.0_dp * pi)) * &
+      exp(-1.0_dp * ((i * dt) - mu)**2 / (sqrt(2.0_dp) * sigma)**2)
+  end do
+
+  max_time = 10000.0
+  n_bins = int(max_time / binwidth)
+  allocate(bins(n_bins))
+  do i = 1, size(bins)
+    bins(i) = (i - 1) * binwidth
+  end do
+
+  tBlock = dim3(256, 1, 1)
+  grid = dim3(4, 1, 1)
+  sample_offset = 0
+
+  share_size = 4 * (4 * n_sites + (n_sites * max_neighbours) + &
+    n_quenchers + (4 * n_bins) + (n_sites * rate_size))
+
+  allocate(counts(4, n_bins, grid%x))
+  allocate(counts_d(4, n_bins, grid%x))
+
+  counts = 0
+  counts_d = counts
+  do i = 1, 100
+    call run_mc<<<grid, tBlock, share_size>>>(counts_d,&
+      dt, t_pulse, max_time, binwidth, pulse_d,&
+      base_rates_d, neighbours, fluence, n_sites, n_quenchers, n_bins,&
+      rate_size, i)
+    counts = counts_d
+  end do
+  
+
+  open(file=counts_file, unit=20)
+  do j = 1, size(bins)
+    write(20, '(F10.3)', advance="no") bins(j)
+    do i = 1, grid%x
+      do k = 1, 4
+        write (20, '(4I10)', advance="no") counts(k, j, i)
+      end do
+    end do
+    write(20, *)
+  end do
+  close(20)
+
 
 end program cuda_agg

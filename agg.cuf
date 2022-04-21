@@ -27,7 +27,7 @@ module agg
       pu, br, nb, fluence,&
       n_sites, n_quenchers, n_bins, rate_size, sample_offset)
       implicit none
-      integer :: c(4, n_bins, *)
+      integer :: c(4, n_bins)
       integer, value :: n_sites, n_quenchers, n_bins, rate_size, sample_offset
       real, value :: dt, t_pulse, max_time, binwidth, fluence
       real :: br(rate_size * (n_sites + 2))
@@ -45,7 +45,7 @@ module agg
       real :: rates(rate_size), probs(rate_size)
       type(curandStateXORWOW) :: h
       integer(8) :: seed, seq, offset
-      integer :: i, j, iam, set_q, choice
+      integer :: i, j, k, iam, set_q, choice
 
       ! can maybe do these with a straight assignment
       ! could be parallelised also but i'm lazy
@@ -67,7 +67,7 @@ module agg
       ! and each thread a unique sequence number
       iam = threadIdx%x
       seed = sample_offset * 64 + 12345
-      seq = iam + (blockIdx%x * blockDim%x)
+      seq = threadIdx%x + (blockIdx%x * blockDim%x)
       offset = 0
       call curand_init(seed, seq, offset, h)
 
@@ -89,7 +89,7 @@ module agg
         set_q = count(is_quencher)
       end do
 
-      if (iam.eq.1) then
+      if (threadIdx%x.eq.1) then
         n_i = 0
         n_pq = 0
         n_q = 0
@@ -113,19 +113,22 @@ module agg
           n_i, n_pq, n_q, pulse, t_pulse, n_current, fluence,&
           base_rates, neighbours, block_counts, h)
         call syncthreads()
-        if (iam.eq.1) then
+        if (threadIdx%x.eq.1) then
           t = t + dt
         end if
       end do
 
-      write (*, *) "block ", blockIdx%x, " finished"
+      if (threadIdx%x.eq.1) then
+        write (*, *) "block ", blockIdx%x, " finished"
+      end if
 
-      ! this can be easily parallelised as well. stop being lazy
-      do i = 1, n_bins
-        do j = 1, 4
-          c(j, i, blockIdx%x) = block_counts(j, i)
-          ! write(*, *) j, i, block_counts(j, i)
-        end do
+      do i = 1, ceiling(float(n_bins) / blockDim%x)
+        iam = threadIdx%x + (blockDim%x * (i - 1))
+        if (iam.le.n_bins) then
+          do j = 1, 4
+            k = atomicadd(c(j, iam), block_counts(j, iam))
+          end do
+        end if
       end do
 
     end subroutine run_mc
@@ -140,7 +143,7 @@ module agg
       integer(2), dimension(:) :: quenchers
       integer(2), dimension(:, :) :: neighbours
       integer, dimension(:, :) :: block_counts
-      real :: rates(rate_size), probs(rate_size), rand, t_pulse, fluence
+      real :: rates(rate_size), rand, t_pulse, fluence
       real, dimension(:) :: base_rates, pulse
       integer :: n_quenchers, i, j, k, istat, ind, trimer,&
         nonzero, choice, ri, n_attempts, n_current, n_sites
@@ -179,7 +182,7 @@ module agg
             ! pick at random - stats
             ri = randint(h, 4)
             pop_loss = .false.
-            probs = [(rates(k) * exp(-1.0 * rates(k) * dt), &
+            rates = [(rates(k) * exp(-1.0 * rates(k) * dt), &
               k = 1, rate_size)]
             ! do k = 1, rate_size
             !   if (rates(k).gt.0.0) then
@@ -198,9 +201,9 @@ module agg
                 choice = rate_size
             end select
 
-            if (probs(choice).gt.0.0) then
+            if (rates(choice).gt.0.0) then
               rand = curand_uniform(h)
-              if (rand.lt.probs(choice)) then
+              if (rand.lt.rates(choice)) then
                 call move(trimer, choice, pop_loss, rate_type, rate_size,&
                   n_i, n_pq, n_q, neighbours, n_current, is_quencher, h)
               end if
@@ -441,12 +444,13 @@ program cuda_agg
   use cudafor
   use agg
   implicit none
-  integer :: i, j, k, grid_size, n_bins, n_sites, n_quenchers,&
+  integer :: i, j, k, istat, grid_size, n_bins, n_sites, n_quenchers,&
     max_neighbours, rate_size, share_size, sample_offset, max_count
-  real :: dt, rho_q, fluence, mu, fwhm, max_time, sigma, t_pulse, binwidth
+  real :: dt, rho_q, fluence, mu, fwhm, max_time,&
+    sigma, t_pulse, binwidth, start_time, end_time
   type(dim3) :: grid, tBlock
-  integer, dimension(:, :, :), allocatable :: counts
-  integer, dimension(:, :, :), allocatable, device :: counts_d
+  integer, dimension(:, :), allocatable :: counts
+  integer, dimension(:, :), allocatable, device :: counts_d
   integer, dimension(:), allocatable :: neighbours_temp
   integer(2), dimension(:, :), allocatable, device :: neighbours
   real, dimension(:), allocatable :: bins, base_rates, pulse
@@ -454,6 +458,8 @@ program cuda_agg
   character(len=200) :: params_file, rates_file, neighbours_file,&
     counts_file, prefix_long
   character(len=:), allocatable :: file_path, prefix
+  type(cudaEvent) :: startEvent, stopEvent
+  type(cudaDeviceProp) :: prop
 
   call get_command_argument(1, params_file)
   open(file=params_file, unit=20)
@@ -495,7 +501,7 @@ program cuda_agg
   write(*, *) "File path = ", file_path
   write(*, *) "Prefix = ", prefix
   write(counts_file, '(a, a, a)') file_path,&
-    prefix, "counts.dat"
+    prefix, "cuda_counts.dat"
 
   allocate(base_rates(rate_size * (n_sites + 2)))
   open(file=rates_file, unit=20)
@@ -532,54 +538,57 @@ program cuda_agg
     bins(i) = (i - 1) * binwidth
   end do
 
+  istat = cudaGetDeviceProperties(prop, 0)
+  write (*, '(/, "Device: ", a)') trim(prop%name)
+
   tBlock = dim3(256, 1, 1)
-  grid = dim3(2, 1, 1)
+  grid = dim3(32, 1, 1)
   sample_offset = 0
 
   share_size = 4 * (4 * n_sites + (n_sites * max_neighbours) + &
     n_quenchers + (4 * n_bins) + (n_sites * rate_size))
 
-  allocate(counts(4, n_bins, grid%x))
-  allocate(counts_d(4, n_bins, grid%x))
+  allocate(counts(4, n_bins))
+  allocate(counts_d(4, n_bins))
 
   counts = 0
   counts_d = counts
   i = 0
 
-  ! do i = 1, 2
+  call cpu_time(start_time)
+
+  do while ((maxval(counts(2, :)) + maxval(counts(3, :))).lt.max_count)
     write (*, *) "iteration ", i
     call run_mc<<<grid, tBlock, share_size>>>(counts_d,&
       dt, t_pulse, max_time, binwidth, pulse_d,&
       base_rates_d, neighbours, fluence, n_sites, n_quenchers, n_bins,&
       rate_size, i)
-  ! end do
 
-  i = cudaDeviceSynchronize()
-  write (*, *) "copying"
-  do i = 1, n_bins
-    do j = 1, grid%x
+    j = cudaDeviceSynchronize()
+    do j = 1, n_bins
       do k = 1,4
-        counts(k, i, j) = counts_d(k, i, j)
-        write (*, *) k, i, j, counts(k, i, j)
+        counts(k, j) = counts(k, j) + counts_d(k, j)
       end do
     end do
+    write (*,*) "max count = ", maxval(counts(2, :)) + maxval(counts(3, :))
+    i = i + 1
   end do
+
+  call cpu_time(end_time)
   
   write(*, *) "writing to file"
 
   open(file=counts_file, unit=20)
   do j = 1, size(bins)
     write(20, '(F10.3)', advance="no") bins(j)
-    do i = 1, grid%x
-      do k = 1, 4
-        write (20, '(4I10)', advance="no") counts(k, j, i)
-      end do
+    do k = 1, 4
+      write (20, '(4I10)', advance="no") counts(k, j)
     end do
     write(20, *)
   end do
   close(20)
 
-  write(*, *) "done"
+  write(*, *) "time per sample: ", (end_time - start_time) / (i * grid%x)
 
   stop
 

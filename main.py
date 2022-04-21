@@ -25,9 +25,11 @@ if __name__ == "__main__":
         n_iter = n_iter / 2 # 2 atom basis
     max_count = 10000
     binwidth = 25.
-    rho_quenchers = 0.0
+    rho_quenchers = 0.1
     # fluences given here as photons per pulse per unit area - 485nm
-    fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
+    # fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
+    #         1.9E14, 3.22E14, 6.12E14, 9.48E14]
+    fluences = [6.24E13, 1.31E14,
             1.9E14, 3.22E14, 6.12E14, 9.48E14]
     # annihilation, pool decay, pq decay, q decay
     rates_dict = {
@@ -75,7 +77,7 @@ if __name__ == "__main__":
             # note - second parameter here is the nn cutoff. set to 0 to
             # disable excitation hopping between trimers
             verbose = False
-            agg = theoretical_aggregate(r, 0., lattice_type, n_iter)
+            agg = theoretical_aggregate(r, 2.01 * r, lattice_type, n_iter)
             n_es = []
             means = []
             stddevs = []

@@ -384,7 +384,8 @@ module agg
       end if
       if (t < float(size(pulse)) * dt) then
         ! no generation on a quencher
-        if ((rate_type.ne.3).and.(n.lt.1)) then
+        if ((rate_type.eq.1).or.&
+        (rate_type.eq.2).and.(n.lt.1)) then
           ! hardcode (n_pigments = 24, sigma_ratio = 1.5) for speed
           ! t_index = int(t / dt) + 1
           ft = pulse(int(t / dt) + 1)

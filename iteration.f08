@@ -17,104 +17,21 @@ program iteration
   integer(ip), dimension(:), allocatable :: neighbours_temp, n_gen,&
     n_ann, n_po_d, n_pq_d, n_q_d, ann_bin, pool_bin, pq_bin, q_bin
   integer(ip), dimension(:, :), allocatable :: neighbours, counts
-  real(dp) :: mu, fluence, t, dt, t_pulse, rho_q,&
+  real(dp) :: mu, fluence, t, dt, t_pulse, rho_q, xsec,&
     sigma, fwhm, start_time, end_time, binwidth, max_time
   real(dp), dimension(:), allocatable :: rates, base_rates, pulse,&
     bins
 
+  call init()
+
   call random_seed(size=seed_size)
   allocate(seed(seed_size))
-  call get_command_argument(1, params_file)
-  open(file=params_file, unit=20)
-  read(20, *) n_sites
-  read(20, *) max_neighbours
-  read(20, *) rho_q
-  read(20, *) fluence
-  read(20, *) mu
-  read(20, *) fwhm
-  read(20, *) binwidth
-  read(20, *) max_count
-  read(20, '(a)') rates_file
-  read(20, '(a)') neighbours_file
-  close(20)
 
-  ! note - rate_size is set to this because there are a maximum
-  ! of five processes that can happen on any given site that aren't
-  ! hopping (four on a pool chlorophyll, five on pq, four on q).
-  ! hence, max_neighbours + 5 is always a long enough array to hold
-  ! every possible rate on every possible site.
-  ! i actually ignore the possibility of hopping on pq though, so in
-  ! principle this could be reduced by one, but then we'd have to check
-  ! that max_neighbours is > 0 and put the extra pq rate in the middle
-  ! somewhere, and that seems pointless just to save a few bytes
-  rate_size = max_neighbours + 5
-  write(*, '(a, I4)')     "n_sites    = ", n_sites
-  write(*, '(a, I1)')     "max neigh  = ", max_neighbours
-  write(*, '(a, F8.3)')   "rho_q      = ", rho_q
-  write(*, '(a, ES10.3)') "fluence    = ", fluence
-  write(*, '(a, F8.3)')   "mu         = ", mu
-  write(*, '(a, F8.3)')   "fwhm       = ", fwhm
-  write(*, '(a, F8.3)')   "binwidth   = ", binwidth
-  write(*, '(a, I8)')     "max count  = ", max_count
-  write(*, '(a, a)')      "rate file  = ", rates_file
-  write(*, '(a, a)')      "neigh file = ", neighbours_file
+  pulse = construct_pulse(mu, fwhm, dt, fluence,&
+        xsec, n_sites, (max_neighbours.gt.0))
 
-  i = scan(rates_file, "/\", .true.)
-  file_path = rates_file(:i)
-  write(prefix_long, '(F4.2, a, ES8.2, a)') rho_q, "_", fluence, "_"
-  prefix = trim(adjustl(prefix_long))
-  write(*, *) "File path = ", file_path
-  write(*, *) "Prefix = ", prefix
-  write(counts_file, '(a, a, a)') file_path,&
-    prefix, "counts.dat"
-
-  ! fortran's fine with 0-sized arrays so this is okay
-  allocate(neighbours_temp(n_sites * max_neighbours))
-  allocate(neighbours(n_sites, max_neighbours))
-  if (max_neighbours.ne.0) then
-    open(file=neighbours_file, unit=20)
-    read(20, *) neighbours_temp
-    close(20)
-  end if
-  neighbours = reshape(neighbours_temp, (/n_sites, max_neighbours/))
-  ! do j = 1, n_sites
-  !   write(*, '(7I8)') j, [(neighbours(j, k), k = 1, max_neighbours)]
-  ! end do
-  allocate(base_rates((n_sites + 2) * rate_size))
-  allocate(rates(rate_size))
-  allocate(n_i(n_sites))
-  allocate(n_pq(n_sites))
-  allocate(n_q(n_sites))
-
-  dt = 1.0_dp
-  t_pulse = 2.0_dp * mu
-  allocate(pulse(int(t_pulse / dt)))
-  sigma = fwhm / (2.0_dp * (sqrt(2.0_dp * log(2.0_dp))))
-  do i = 1, int(t_pulse / dt)
-    pulse(i) = 1.0_dp / (sigma * sqrt(2.0_dp * pi)) * &
-      exp(-1.0_dp * ((i * dt) - mu)**2 / (sqrt(2.0_dp) * sigma)**2)
-  end do
-
-  ! one set of bins for each decay type; the bin array index will be
-  ! something like floor(t / bin_size) + 1
-  max_time = 10000.0_dp
-  allocate(bins(int(max_time/binwidth)))
-  allocate(counts(4, int(max_time/binwidth)))
-  counts = 0
-  do i = 1, size(bins)
-    bins(i) = (i - 1) * binwidth
-  end do
-
-  open(file=rates_file, unit=20)
-  read(20, *) base_rates
-  close(20)
   write(*, '(a)', advance='no') "Progress: ["
 
-  allocate(is_quencher(n_sites))
-  is_quencher = .false.
-  n_quenchers = int(n_sites * rho_q)
-  allocate(quenchers(n_quenchers))
-  
   call cpu_time(start_time)
   i = 0
   ! keep iterating till we get a decent number of counts
@@ -126,7 +43,7 @@ program iteration
     is_quencher = .false.
     call allocate_quenchers(n_quenchers, is_quencher, quenchers)
     call fix_base_rates()
-    if (mod(i, 100).eq.0) then
+    if (mod(i, max_count / 50).eq.0) then
       write(*, *) i, [(maxval(counts(j, :)), j = 1, 4)]
     end if
     n_i = 0
@@ -134,7 +51,7 @@ program iteration
     n_q = 0
     n_current = 0
     t = 0.0_dp
-    do while (t.lt.t_pulse)
+    do while (t.lt.(size(pulse) * dt))
       ! ensure we generate excitons, otherwise
       ! n_current = 0 and we never start
       call mc_step(dt, n_quenchers)
@@ -157,21 +74,134 @@ program iteration
   write(*, *) "Time elapsed: ", end_time - start_time
   write(*, *) "Number of iterations: ", i
 
-  deallocate(is_quencher)
-  deallocate(quenchers)
-  deallocate(seed)
-  deallocate(n_i)
-  deallocate(n_pq)
-  deallocate(n_q)
-  deallocate(rates)
-  deallocate(base_rates)
-  deallocate(neighbours)
-  deallocate(neighbours_temp)
-  deallocate(pulse)
-  deallocate(bins)
-  deallocate(counts)
+  call deallocations()
 
   contains
+
+    subroutine init()
+      ! this is ugly lmao
+      implicit none
+      call get_command_argument(1, params_file)
+      open(file=params_file, unit=20)
+      read(20, *) n_sites
+      read(20, *) max_neighbours
+      read(20, *) rho_q
+      read(20, *) fluence
+      read(20, *) mu
+      read(20, *) fwhm
+      read(20, *) binwidth
+      read(20, *) max_count
+      read(20, '(a)') rates_file
+      read(20, '(a)') neighbours_file
+      close(20)
+
+      ! note - rate_size is set to this because there are a maximum
+      ! of five processes that can happen on any given site that aren't
+      ! hopping (four on a pool chlorophyll, five on pq, four on q).
+      ! hence, max_neighbours + 5 is always a long enough array to hold
+      ! every possible rate on every possible site.
+      ! i actually ignore the possibility of hopping on pq though, so in
+      ! principle this could be reduced by one, but then we'd have to check
+      ! that max_neighbours is > 0 and put the extra pq rate in the middle
+      ! somewhere, and that seems pointless just to save a few bytes
+      rate_size = max_neighbours + 5
+      write(*, '(a, I4)')     "n_sites    = ", n_sites
+      write(*, '(a, I1)')     "max neigh  = ", max_neighbours
+      write(*, '(a, F8.3)')   "rho_q      = ", rho_q
+      write(*, '(a, ES10.3)') "fluence    = ", fluence
+      write(*, '(a, F8.3)')   "mu         = ", mu
+      write(*, '(a, F8.3)')   "fwhm       = ", fwhm
+      write(*, '(a, F8.3)')   "binwidth   = ", binwidth
+      write(*, '(a, I8)')     "max count  = ", max_count
+      write(*, '(a, a)')      "rate file  = ", rates_file
+      write(*, '(a, a)')      "neigh file = ", neighbours_file
+
+      i = scan(rates_file, "/\", .true.)
+      file_path = rates_file(:i)
+      write(prefix_long, '(F4.2, a, ES8.2, a)') rho_q, "_", fluence, "_"
+      prefix = trim(adjustl(prefix_long))
+      write(*, *) "File path = ", file_path
+      write(*, *) "Prefix = ", prefix
+      write(counts_file, '(a, a, a)') file_path,&
+        prefix, "counts.dat"
+
+      ! fortran's fine with 0-sized arrays so this is okay
+      allocate(neighbours_temp(n_sites * max_neighbours))
+      allocate(neighbours(n_sites, max_neighbours))
+      if (max_neighbours.ne.0) then
+        open(file=neighbours_file, unit=20)
+        read(20, *) neighbours_temp
+        close(20)
+      end if
+      neighbours = reshape(neighbours_temp, (/n_sites, max_neighbours/))
+      allocate(base_rates((n_sites + 2) * rate_size))
+      allocate(rates(rate_size))
+      allocate(n_i(n_sites))
+      allocate(n_pq(n_sites))
+      allocate(n_q(n_sites))
+
+      open(file=rates_file, unit=20)
+      read(20, *) base_rates
+      close(20)
+
+      ! one set of bins for each decay type; the bin array index will be
+      ! something like floor(t / bin_size) + 1
+      max_time = 10000.0_dp
+      allocate(bins(int(max_time/binwidth)))
+      allocate(counts(4, int(max_time/binwidth)))
+      counts = 0
+      do i = 1, size(bins)
+        bins(i) = (i - 1) * binwidth
+      end do
+
+      allocate(is_quencher(n_sites))
+      is_quencher = .false.
+      n_quenchers = int(n_sites * rho_q)
+      allocate(quenchers(n_quenchers))
+
+    end subroutine init
+
+    subroutine deallocations()
+      implicit none
+      deallocate(is_quencher)
+      deallocate(quenchers)
+      deallocate(seed)
+      deallocate(n_i)
+      deallocate(n_pq)
+      deallocate(n_q)
+      deallocate(rates)
+      deallocate(base_rates)
+      deallocate(neighbours)
+      deallocate(neighbours_temp)
+      deallocate(pulse)
+      deallocate(bins)
+      deallocate(counts)
+      deallocate(file_path)
+      deallocate(prefix)
+    end subroutine deallocations
+
+    function construct_pulse(mu, fwhm, dt, fluence,&
+        xsec, n_sites, is_aggregate) result(pulse)
+      implicit none
+      real(dp) :: mu, fwhm, dt, sigma, tmax, fluence, xsec
+      real(dp), dimension(:), allocatable :: pulse
+      logical :: is_aggregate
+      integer :: i, n_sites
+      tmax = 2.0_dp * mu
+      allocate(pulse(int(t_pulse / dt)))
+      sigma = fwhm / (2.0_dp * (sqrt(2.0_dp * log(2.0_dp))))
+      if (is_aggregate) then
+        ! in an aggregate the LHCII cross-sections overlap to such
+        ! an extent that we assume they're all on top of each other
+        xsec = (fluence * xsec)/ float(n_sites)
+      else
+        xsec = (fluence * xsec)
+      end if
+      do i = 1, int(t_pulse / dt)
+        pulse(i) = xsec / (sigma * sqrt(2.0_dp * pi)) * &
+          exp(-1.0_dp * ((i * dt) - mu)**2 / (sqrt(2.0_dp) * sigma)**2)
+      end do
+    end function construct_pulse
 
     function randint(upper) result(i)
       ! returns an integer between 1 and number for array indexing
@@ -227,8 +257,8 @@ program iteration
       implicit none
       real(dp) :: rates(rate_size)
       character(4) :: rate_type
-      integer(ip) :: ind, start, end_, n, t_index, k, n_comb
-      real(dp) :: t, ft, xsec, sigma_ratio, n_pigments, ann_fac
+      integer(ip) :: ind, start, end_, n, t_index, k
+      real(dp) :: t, ft, sigma_ratio, n_pigments, ann_fac
       if (trim(rate_type).eq."PQ") then
         start = ((n_sites) * rate_size) + 1
         end_ = start + rate_size - 1
@@ -241,60 +271,45 @@ program iteration
         start = ((ind - 1) * rate_size) + 1
         end_ = start + rate_size - 1
         n = n_i(ind)
-      else
-        write (*, *) "get_rates - rate_type error"
       end if
       rates = base_rates(start:end_)
-      if ((start.lt.0).or.(end_.gt.size(base_rates))) then
-        write (*,*) "get_rates bounds error: start ",&
-                    start, " end, ", end_
-      end if
-      sigma_ratio = 1.5_dp
-      n_pigments = 24.0_dp
+      ! sigma_ratio = 1.5_dp
+      ! n_pigments = 24.0_dp
       if (t < t_pulse) then
         ! no generation on a quencher
         if ((rate_type.eq."POOL").or.&
           ((rate_type.eq."PQ").and.(n.lt.1))) then
-          t_index = int(t / dt) + 1
-          ft = pulse(t_index)
-          xsec = 1.1E-14
-          if (max_neighbours.gt.0) then
-            xsec = xsec / float(n_sites)
-          end if
-          if (((1 + sigma_ratio) * n).le.n_pigments) then
-            rates(1) = xsec * fluence * ft * &
-              ((n_pigments - (1 + sigma_ratio) * n)/ n_pigments)
+          ft = pulse(int(t / dt) + 1)
+          ! hardcode sigma_ratio = 1.5, n_pigments = 24 for speed
+          ! cross-section stuff taken care of at start
+          if (((2.5_dp) * n).le.24.0_dp) then
+            ! rates(1) = ft * &
+            !   ((n_pigments - (1 + sigma_ratio) * n)/ n_pigments)
+            rates(1) = ft * (1 - 0.10416666 * n)
           end if
         end if
       else
         rates(1) = 0.0_dp
       end if
-      do k = 2, rate_size - 1
-        rates(k) = rates(k) * n
-        ! max population on pq/q should be 1
-        ! almost sufficient to just do
-        ! (is_quencher(ind).and.(n_pq(ind).eq.1))
-        ! but i don't think this prevents n_q from > 1
-        ! so i think we have to have all 3 here
-        if (rate_type.eq."POOL".and.&
-          (is_quencher(ind)).and.(n_pq(ind).eq.1)) then
+      ! max population on pq/q should be 1
+      ! only applies if this site's a quencher anyway,
+      ! otherwise this rate's already been zeroed
+      if (is_quencher(ind)) then
+        if (rate_type.ne."PQ".and.(n_pq(ind).eq.1)) then
             rates(rate_size - 2) = 0.0_dp
-        else if (rate_type.eq."PQ".and.&
-          (is_quencher(ind)).and.(n_q(ind).eq.1)) then
-            rates(rate_size - 2) = 0.0_dp
-        else if (rate_type.eq."Q".and.&
-          (is_quencher(ind)).and.(n_pq(ind).eq.1)) then
+        else if (rate_type.eq."PQ".and.(n_q(ind).eq.1)) then
             rates(rate_size - 2) = 0.0_dp
         end if
+      end if
+      do k = 2, rate_size - 1
+        rates(k) = rates(k) * n
       end do
       ! they should be able to annihilate with
       ! other excitons in the corresponding pool
       if ((is_quencher(ind)).and.(rate_type.ne."Q")) then
-        n_comb = n_i(ind) + n_pq(ind)
-        ann_fac = (n_comb * (n_comb - 1)) / 2.0_dp
-      else
-        ann_fac = (n * (n - 1)) / 2.0_dp
+        n = n_i(ind) + n_pq(ind)
       end if
+      ann_fac = (n * (n - 1)) / 2.0_dp
       rates(rate_size) = rates(rate_size) * ann_fac
     end function get_rates
 

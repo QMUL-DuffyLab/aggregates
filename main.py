@@ -25,14 +25,17 @@ if __name__ == "__main__":
         n_iter = n_iter / 2 # 2 atom basis
     max_count = 10000
     binwidth = 25.
-    rho_quenchers = 0.1
+    rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
     # fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
     #         1.9E14, 3.22E14, 6.12E14, 9.48E14]
-    fluences = [6.24E13, 1.31E14,
-            1.9E14, 3.22E14, 6.12E14, 9.48E14]
+    # do the fastest ones first
+    fluences = np.flip(np.array([6.24E13, 1.31E14,
+            1.9E14, 3.22E14, 6.12E14, 9.48E14]))
     # annihilation, pool decay, pq decay, q decay
     rates_dict = {
+     'hopping_only': Rates(20., 3600., 3600., 14., np.inf, np.inf,
+         np.inf, np.inf, 50., [False, True, True, False], True, True),
      'lut_eet': Rates(20., 3600., 3600., 14.,
          7., 1., 20., np.inf, 50., [False, True, True, False], True, True),
      'schlau_cohen': Rates(20., 3600., 3600., 14.,
@@ -44,7 +47,7 @@ if __name__ == "__main__":
      'exciton': Rates(20., 3600., 40., 40.,
          7., 1., 1000., 1000., 50., [False, True, False, False], True, True),
      }
-    rates_key = 'mennucci'
+    rates_key = 'hopping_only'
     # for rates in rates_dict:
     #     for lattice in ["line", "square", "hex", "honeycomb"]:
     rates = rates_dict[rates_key]
@@ -104,10 +107,15 @@ if __name__ == "__main__":
             long_gauss, path, file_prefix))
         tri_tau.append(fit.trifit(histvals, rates, xvals,
             long_gauss, path, file_prefix))
+        # horrible way of doing this. but allows us to look at
+        # partially finished runs
+        with open("{}/mono_tau.dat".format(path), "w") as mt:
+            np.savetxt(mt, np.array(mono_tau))
+        with open("{}/bi_tau.dat".format(path), "w") as bt:
+            np.savetxt(bt, np.array(bi_tau))
+        with open("{}/tri_tau.dat".format(path), "w") as tt:
+            np.savetxt(tt, np.array(tri_tau))
 
     end_time = time.monotonic()
     print("Total time elapsed: {}".format((end_time - start_time)))
-    np.savetxt("{}/mono_tau.dat".format(path), np.array(mono_tau))
-    np.savetxt("{}/bi_tau.dat".format(path), np.array(bi_tau))
-    np.savetxt("{}/tri_tau.dat".format(path), np.array(tri_tau))
     subprocess.run(['python', 'plot_tau.py', '{}'.format(path)], check=True)

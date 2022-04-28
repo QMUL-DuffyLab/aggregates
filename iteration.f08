@@ -1,6 +1,7 @@
 program iteration
   use iso_fortran_env
   use iso_c_binding
+  use mpi_f08
   implicit none
   integer, parameter :: dp = c_double
   integer, parameter :: short = c_short
@@ -8,43 +9,59 @@ program iteration
   real, parameter :: pi = 3.1415926535
 
   character(len=200) :: params_file, rates_file, neighbours_file,&
-    loss_file, seed_str, cols, counts_file, prefix_long
+    counts_file, prefix_long
   character(len=:), allocatable :: file_path, prefix
   logical(c_bool), dimension(:), allocatable :: is_quencher
-  integer(ip) :: i, j, k, n_iter, n_sites, max_neighbours, rate_size,&
-    n_current, seed_size, stat, col, max_count, n_quenchers
+  integer(ip) :: i, j, k, n_sites, max_neighbours, rate_size,&
+    n_current, seed_size, max_count, n_quenchers, mpierr, rank, num_procs
   integer(ip), dimension(:), allocatable :: n_i, n_pq, n_q, quenchers, seed
-  integer(ip), dimension(:), allocatable :: neighbours_temp, n_gen,&
-    n_ann, n_po_d, n_pq_d, n_q_d, ann_bin, pool_bin, pq_bin, q_bin
+  integer(ip), dimension(:), allocatable :: neighbours_temp
   integer(ip), dimension(:, :), allocatable :: neighbours, counts
   real(dp) :: mu, fluence, t, dt, t_pulse, rho_q, xsec,&
     sigma, fwhm, start_time, end_time, binwidth, max_time
   real(dp), dimension(:), allocatable :: rates, base_rates, pulse,&
     bins
 
+  call MPI_Init(mpierr)
+  call MPI_Comm_rank(MPI_COMM_WORLD, rank,      mpierr)
+  call MPI_Comm_size(MPI_COMM_WORLD, num_procs, mpierr)
+
   call init()
 
   call random_seed(size=seed_size)
   allocate(seed(seed_size))
 
+  ! rough estimate of how many counts we want per process
+  ! to get good counts after reduction. this could be done
+  ! exactly via MPI_REDUCE(MPI_SEND(maxval(whatever))) but
+  ! we don't need exactly max_count counts, so who cares
+  max_count = ceiling(float(max_count) / num_procs)
+  if (rank.eq.0) then
+    write(*, *) "max count per process = ", max_count
+    call cpu_time(start_time)
+  end if
+
+  dt = 1.0_dp
+  xsec = 1.1E-14
   pulse = construct_pulse(mu, fwhm, dt, fluence,&
         xsec, n_sites, (max_neighbours.gt.0))
 
-  write(*, '(a)', advance='no') "Progress: ["
+  ! write(*, '(a)', advance='no') "Progress: ["
 
-  call cpu_time(start_time)
   i = 0
   ! keep iterating till we get a decent number of counts
   ! pool decays and pre-quencher decays are emissive, so
   ! those are what we're concerned with for the fit
   do while ((maxval(counts(2, :)) + maxval(counts(3, :))).lt.max_count)
-    seed = i
+    seed = (i * num_procs) + rank
+    ! write(*, *) "Process ", rank, " has seed ", (i * num_procs) + rank,&
+    !   " for sample ", i
     call random_seed(put=seed)
     is_quencher = .false.
     call allocate_quenchers(n_quenchers, is_quencher, quenchers)
     call fix_base_rates()
-    if (mod(i, max_count / 50).eq.0) then
-      write(*, *) i, [(maxval(counts(j, :)), j = 1, 4)]
+    if (mod(i, 100).eq.0) then
+      write(*, *) i, rank, [(maxval(counts(j, :)), j = 1, 4)]
     end if
     n_i = 0
     n_pq = 0
@@ -61,20 +78,38 @@ program iteration
     end do
     i = i + 1
   end do
+  write(*, *) "Process ", rank, " has max count ",&
+    maxval(counts(2, :)) + maxval(counts(3, :))
 
-  write(*, *) "]."
+  ! write(*, *) "]."
+  call MPI_Barrier(MPI_COMM_WORLD, mpierr)
 
-  open(file=counts_file, unit=20)
-  do j = 1, size(bins)
-    write(20, '(F10.3, 4I10)') bins(j), [(counts(k, j), k = 1, 4)]
-  end do
-  close(20)
+  if (rank.eq.0) then
+    call MPI_Reduce(MPI_IN_PLACE, counts, size(counts), MPI_INT,&
+                      MPI_SUM, 0, MPI_COMM_WORLD, mpierr)
+    ! call MPI_Reduce(MPI_IN_PLACE, i, 1, MPI_INT,&
+    !                   MPI_SUM, 0, MPI_COMM_WORLD, mpierr)
+  else
+    ! call MPI_Reduce(i, i, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD, mpierr)
+    call MPI_Reduce(counts, counts, size(counts), MPI_INT,&
+                      MPI_SUM, 0, MPI_COMM_WORLD, mpierr)
+  end if
 
-  call cpu_time(end_time)
-  write(*, *) "Time elapsed: ", end_time - start_time
-  write(*, *) "Number of iterations: ", i
+  if (rank.eq.0) then
+    open(file=counts_file, unit=20)
+    do j = 1, size(bins)
+      write(20, '(F10.3, 4I10)') bins(j), [(counts(k, j), k = 1, 4)]
+    end do
+    close(20)
+
+    call cpu_time(end_time)
+    write(*, *) "Time elapsed: ", end_time - start_time
+    write(*, *) "Number of iterations: ", i
+  end if
 
   call deallocations()
+
+  call MPI_Finalize(mpierr)
 
   contains
 
@@ -188,7 +223,7 @@ program iteration
       logical :: is_aggregate
       integer :: i, n_sites
       tmax = 2.0_dp * mu
-      allocate(pulse(int(t_pulse / dt)))
+      allocate(pulse(int(tmax / dt)))
       sigma = fwhm / (2.0_dp * (sqrt(2.0_dp * log(2.0_dp))))
       if (is_aggregate) then
         ! in an aggregate the LHCII cross-sections overlap to such
@@ -197,7 +232,7 @@ program iteration
       else
         xsec = (fluence * xsec)
       end if
-      do i = 1, int(t_pulse / dt)
+      do i = 1, int(tmax / dt)
         pulse(i) = xsec / (sigma * sqrt(2.0_dp * pi)) * &
           exp(-1.0_dp * ((i * dt) - mu)**2 / (sqrt(2.0_dp) * sigma)**2)
       end do
@@ -275,7 +310,7 @@ program iteration
       rates = base_rates(start:end_)
       ! sigma_ratio = 1.5_dp
       ! n_pigments = 24.0_dp
-      if (t < t_pulse) then
+      if (t < size(pulse) * dt) then
         ! no generation on a quencher
         if ((rate_type.eq."POOL").or.&
           ((rate_type.eq."PQ").and.(n.lt.1))) then

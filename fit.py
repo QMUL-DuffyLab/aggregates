@@ -132,7 +132,7 @@ def tri_error(fit):
     error = np.sqrt(np.matmul(m, j.transpose()))
     return error
 
-def monofit(histvals, rates, xvals, irf, path, file_prefix):
+def monofit(histvals, rates, xvals, irf, fluence, path, file_prefix):
     weights = 1/np.sqrt(histvals + 1)
     mod = Model(monoexprisemodel, independent_vars=('x', 'irf'))
     pars = mod.make_params(tau_1 = 1./rates.k_ann,
@@ -163,9 +163,9 @@ def monofit(histvals, rates, xvals, irf, path, file_prefix):
         print("Monoexponential fit couldn't estimate covariances!")
         lifetime = np.nan
         error = np.nan
-    return [lifetime, error]
+    return [fluence, lifetime, error]
 
-def bifit(histvals, rates, xvals, irf, path, file_prefix):
+def bifit(histvals, rates, xvals, irf, fluence, path, file_prefix):
     weights = 1/np.sqrt(histvals + 1)
     mod = Model(biexprisemodel, independent_vars=('x', 'irf'))
     pars = mod.make_params(tau_1 = 1./rates.k_ann, a_1 = 1.,
@@ -197,9 +197,9 @@ def bifit(histvals, rates, xvals, irf, path, file_prefix):
         print("Biexponential fit couldn't estimate covariances!")
         lifetime = np.nan
         error = np.nan
-    return [lifetime, error]
+    return [fluence, lifetime, error]
 
-def trifit(histvals, rates, xvals, irf, path, file_prefix):
+def trifit(histvals, rates, xvals, irf, fluence, path, file_prefix):
     weights = 1/np.sqrt(histvals + 1)
     mod = Model(triexprisemodel, independent_vars=('x', 'irf'))
     pars = mod.make_params(tau_1 = 1./rates.k_ann, a_1 = 1.,
@@ -234,4 +234,4 @@ def trifit(histvals, rates, xvals, irf, path, file_prefix):
         print("Triexponential fit couldn't estimate covariances!")
         lifetime = np.nan
         error = np.nan
-    return [lifetime, error]
+    return [fluence, lifetime, error]

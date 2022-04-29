@@ -27,11 +27,8 @@ if __name__ == "__main__":
     binwidth = 25.
     rho_quenchers = 0.0
     # fluences given here as photons per pulse per unit area - 485nm
-    # fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
-    #         1.9E14, 3.22E14, 6.12E14, 9.48E14]
-    # do the fastest ones first
-    fluences = np.flip(np.array([6.24E13, 1.31E14,
-            1.9E14, 3.22E14, 6.12E14, 9.48E14]))
+    fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
+            1.9E14, 3.22E14, 6.12E14, 9.48E14]
     # annihilation, pool decay, pq decay, q decay
     rates_dict = {
      'hopping_only': Rates(20., 3600., 3600., 14., np.inf, np.inf,

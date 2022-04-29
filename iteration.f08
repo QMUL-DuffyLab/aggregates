@@ -44,7 +44,7 @@ program iteration
   dt = 1.0_dp
   xsec = 1.1E-14
   pulse = construct_pulse(mu, fwhm, dt, fluence,&
-        xsec, n_sites, (max_neighbours.gt.0))
+        xsec, n_sites)
 
   ! write(*, '(a)', advance='no') "Progress: ["
 
@@ -216,24 +216,16 @@ program iteration
     end subroutine deallocations
 
     function construct_pulse(mu, fwhm, dt, fluence,&
-        xsec, n_sites, is_aggregate) result(pulse)
+        xsec, n_sites) result(pulse)
       implicit none
       real(dp) :: mu, fwhm, dt, sigma, tmax, fluence, xsec
       real(dp), dimension(:), allocatable :: pulse
-      logical :: is_aggregate
       integer :: i, n_sites
       tmax = 2.0_dp * mu
       allocate(pulse(int(tmax / dt)))
       sigma = fwhm / (2.0_dp * (sqrt(2.0_dp * log(2.0_dp))))
-      if (is_aggregate) then
-        ! in an aggregate the LHCII cross-sections overlap to such
-        ! an extent that we assume they're all on top of each other
-        xsec = (fluence * xsec)/ float(n_sites)
-      else
-        xsec = (fluence * xsec)
-      end if
       do i = 1, int(tmax / dt)
-        pulse(i) = xsec / (sigma * sqrt(2.0_dp * pi)) * &
+        pulse(i) = (xsec * fluence) / (sigma * sqrt(2.0_dp * pi)) * &
           exp(-1.0_dp * ((i * dt) - mu)**2 / (sqrt(2.0_dp) * sigma)**2)
       end do
     end function construct_pulse

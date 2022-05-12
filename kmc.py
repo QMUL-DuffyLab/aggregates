@@ -88,7 +88,7 @@ class Iteration():
                 # trimer (pool)
                 n_neigh = len(self.aggregate.trimers[i].get_neighbours())
                 for j in range(n_neigh):
-                    t[self.max_neighbours - (j - 1)] = self.model.hop
+                    t[self.max_neighbours - j] = self.model.hop
                 t[self.max_neighbours + 2] = self.model.k_po_pq
                 t[self.max_neighbours + 3] = self.model.g_pool
                 t[self.max_neighbours + 4] = self.model.k_ann

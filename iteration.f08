@@ -21,6 +21,7 @@ program iteration
     sigma, fwhm, start_time, end_time, binwidth, max_time
   real(dp), dimension(:), allocatable :: rates, base_rates, pulse,&
     bins
+  real(dp), dimension(:, :), allocatable :: ds
 
   call MPI_Init(mpierr)
   call MPI_Comm_rank(MPI_COMM_WORLD, rank,      mpierr)
@@ -45,8 +46,9 @@ program iteration
   xsec = 1.1E-14
   pulse = construct_pulse(mu, fwhm, dt, fluence,&
         xsec, n_sites)
-
-  ! write(*, '(a)', advance='no') "Progress: ["
+  ! base_rates(1) is where a generation rate will go
+  ! base_rates(2) is a hopping rate
+  ds = entropic_penalties(base_rates(2))
 
   i = 0
   ! keep iterating till we get a decent number of counts
@@ -87,10 +89,7 @@ program iteration
   if (rank.eq.0) then
     call MPI_Reduce(MPI_IN_PLACE, counts, size(counts), MPI_INT,&
                       MPI_SUM, 0, MPI_COMM_WORLD, mpierr)
-    ! call MPI_Reduce(MPI_IN_PLACE, i, 1, MPI_INT,&
-    !                   MPI_SUM, 0, MPI_COMM_WORLD, mpierr)
   else
-    ! call MPI_Reduce(i, i, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD, mpierr)
     call MPI_Reduce(counts, counts, size(counts), MPI_INT,&
                       MPI_SUM, 0, MPI_COMM_WORLD, mpierr)
   end if
@@ -215,6 +214,27 @@ program iteration
       deallocate(prefix)
     end subroutine deallocations
 
+    function entropic_penalties(hopping_rate) result (ds)
+      implicit none
+      integer :: i, j, nmax
+      real(dp), dimension(:, :), allocatable :: ds
+      real(dp) :: hopping_rate
+      ! sum of boltzmann factors for average exciton energies
+      ! over one monomer is 4.7; set this to 5, then multiply by 3 
+      nmax = 15
+      allocate(ds(0:nmax, 0:nmax))
+      ds = 0.0
+      do i = 0, nmax
+        do j = 0, nmax
+          ! entropy factor for n_donor = i, n_acceptor = j
+          ds(i, j) = hopping_rate * &
+                   ((i * (15.0 - j)) / ((j + 1) * (15.0 - i + 1))) 
+          write(*, '(F10.6, a)', advance="no") ds(i, j), " "
+        end do
+        write(*, *)
+      end do
+    end function entropic_penalties
+
     function construct_pulse(mu, fwhm, dt, fluence,&
         xsec, n_sites) result(pulse)
       implicit none
@@ -330,6 +350,11 @@ program iteration
       end if
       do k = 2, rate_size - 1
         rates(k) = rates(k) * n
+        if (k.lt.(rate_size - 3)) then
+          ! entropic factor due to populations
+          ! on this trimer and its neighbours
+          rates(k) = rates(k) * ds(n, n_i(neighbours(ind, k - 1)))
+        end if
       end do
       ! they should be able to annihilate with
       ! other excitons in the corresponding pool
@@ -500,13 +525,11 @@ program iteration
           if (.not.any(rates.gt.0.0_dp)) then
             exit
           end if
-          probs = [(rates(k) * exp(-1.0_dp * rates(k) * dt), &
-            k = 1, rate_size)]
           ! pick a possible move
           choice = randint(nonzero)
           ri = 0
           do k = 1, rate_size
-            if (probs(k).gt.0.0_dp) then
+            if (rates(k).gt.0.0_dp) then
               ri = ri + 1
             end if
             if (ri.eq.choice) then
@@ -514,6 +537,8 @@ program iteration
               exit
             end if
           end do
+          probs = [(rates(k) * exp(-1.0_dp * rates(k) * dt), &
+            k = 1, rate_size)]
           ! monte carlo test
           call random_number(rand)
           if (rand.lt.probs(choice)) then

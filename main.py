@@ -50,6 +50,7 @@ if __name__ == "__main__":
     #     for lattice in ["line", "square", "hex", "honeycomb"]:
     rates = rates_dict[rates_key]
     pulse = Pulse(fwhm=50., mu=100.)
+    run = False # set to true to run, false to generate input files
     mt = open("{}/{:3.2f}_mono_tau.dat".format(path, rho_quenchers), "w")
     bt = open("{}/{:3.2f}_bi_tau.dat".format(path, rho_quenchers), "w")
     tt = open("{}/{:3.2f}_tri_tau.dat".format(path, rho_quenchers), "w")
@@ -69,7 +70,8 @@ if __name__ == "__main__":
                     rho_quenchers,
                     path, fluence, binwidth, max_count,
                     verbose=verbose)
-            subprocess.run(['./f_iter', it.params_file], check=True)
+            if (run):
+                subprocess.run(['./f_iter', it.params_file], check=True)
 
         hist = np.loadtxt("{}/{}_counts.dat".format(path, file_prefix))
         xvals = hist[:, 0] + ((hist[0, 1] - hist[0, 0]) / 2.)

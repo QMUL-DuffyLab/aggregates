@@ -172,10 +172,11 @@ class Iteration():
         cv2.imwrite(filename, img)
 
     def write_arrays(self, path, binwidth, max_count):
-        self.params_file = "{}/params".format(path)
+        prefix = "{:3.2f}_{:4.2E}".format(
+                self.rho_quenchers, self.fluence)
+        self.params_file = "{}/{}_params".format(path, prefix)
         neighbours_file = "{}/neighbours.dat".format(path)
         rates_file = "{}/base_rates.dat".format(path)
-        pulse_file = "{}/pulse.dat".format(path)
         np.savetxt(rates_file, self.base_rates.flatten())
         neighbours = np.zeros((self.n_sites, self.max_neighbours), dtype=int)
         for i in range(self.n_sites):

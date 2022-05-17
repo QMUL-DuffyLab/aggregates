@@ -19,8 +19,8 @@ if __name__ == "__main__":
     else:
         fit_only = False
     r = 5.
-    lattice_type = "hex"
-    n_iter = 8 # 434 trimers for honeycomb
+    lattice_type = "line"
+    n_iter = 110 # 434 trimers for honeycomb
     if lattice_type == "honeycomb":
         n_iter = n_iter / 2 # 2 atom basis
     max_count = 10000
@@ -31,7 +31,7 @@ if __name__ == "__main__":
             1.9E14, 3.22E14, 6.12E14, 9.48E14]
     # annihilation, pool decay, pq decay, q decay
     rates_dict = {
-     'hopping_only': Rates(5., 3600., 3600., 14., np.inf, np.inf,
+     'hopping_only': Rates(25., 3600., 3600., 14., np.inf, np.inf,
          np.inf, np.inf, 50., [False, True, True, False], True, True),
      'lut_eet': Rates(20., 3600., 3600., 14.,
          7., 1., 20., np.inf, 50., [False, True, True, False], True, True),
@@ -46,6 +46,7 @@ if __name__ == "__main__":
      }
     rates_key = 'hopping_only'
     path = "out/{}/{}".format(rates_key, lattice_type)
+    os.makedirs(path, exist_ok=True)
     # for rates in rates_dict:
     #     for lattice in ["line", "square", "hex", "honeycomb"]:
     rates = rates_dict[rates_key]
@@ -93,6 +94,9 @@ if __name__ == "__main__":
         np.savetxt(bt, np.array(bi_tau).reshape(1, 3))
         np.savetxt(tt, np.array(tri_tau).reshape(1, 3))
 
+    mt.close()
+    bt.close()
+    tt.close()
     end_time = time.monotonic()
     print("Total time elapsed: {}".format((end_time - start_time)))
-    subprocess.run(['python', 'plot_tau.py', '{}'.format(path)], check=True)
+    subprocess.run(['python', 'plot_tau.py', '{}'.format(path), '{:3.2f}'.format(rho_quenchers)], check=True)

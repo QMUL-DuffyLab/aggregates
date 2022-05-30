@@ -19,13 +19,13 @@ if __name__ == "__main__":
     else:
         fit_only = False
     r = 5.
-    lattice_type = "line"
-    n_iter = 110 # 434 trimers for honeycomb
+    lattice_type = "hex"
+    n_iter = 8 # 434 trimers for honeycomb
     if lattice_type == "honeycomb":
         n_iter = n_iter / 2 # 2 atom basis
     max_count = 10000
     binwidth = 25.
-    rho_quenchers = 0.0
+    rho_quenchers = 0.5
     # fluences given here as photons per pulse per unit area - 485nm
     fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
             1.9E14, 3.22E14, 6.12E14, 9.48E14]
@@ -44,7 +44,7 @@ if __name__ == "__main__":
      'exciton': Rates(20., 3600., 40., 40.,
          7., 1., 1000., 1000., 50., [False, True, False, False], True, True),
      }
-    rates_key = 'hopping_only'
+    rates_key = 'lut_eet'
     path = "out/{}/{}".format(rates_key, lattice_type)
     os.makedirs(path, exist_ok=True)
     # for rates in rates_dict:
@@ -74,25 +74,26 @@ if __name__ == "__main__":
             if (run):
                 subprocess.run(['./f_iter', it.params_file], check=True)
 
-        hist = np.loadtxt("{}/{}_counts.dat".format(path, file_prefix))
-        xvals = hist[:, 0] + ((hist[0, 1] - hist[0, 0]) / 2.)
-        histvals = hist[:, 2] + hist[:, 3]
-        long_gauss = 1. / (pulse.sigma * np.sqrt(2. * np.pi)) * \
-            np.exp(- (xvals - pulse.mu)**2 \
-            / (np.sqrt(2.) * pulse.sigma)**2)
-        long_gauss = long_gauss/np.max(long_gauss)
-        histvals = histvals / np.max(histvals)
-        mono_tau = fit.monofit(histvals, rates, xvals,
-            long_gauss, fluence, path, file_prefix)
-        bi_tau = fit.bifit(histvals, rates, xvals,
-            long_gauss, fluence, path, file_prefix)
-        tri_tau = fit.trifit(histvals, rates, xvals,
-            long_gauss, fluence, path, file_prefix)
-        # horrible way of doing this. but allows us to look at
-        # partially finished runs
-        np.savetxt(mt, np.array(mono_tau).reshape(1, 3))
-        np.savetxt(bt, np.array(bi_tau).reshape(1, 3))
-        np.savetxt(tt, np.array(tri_tau).reshape(1, 3))
+        if os.path.isfile("{}/{}_counts.dat".format(path, file_prefix)):
+            hist = np.loadtxt("{}/{}_counts.dat".format(path, file_prefix))
+            xvals = hist[:, 0] + ((hist[0, 1] - hist[0, 0]) / 2.)
+            histvals = hist[:, 2] + hist[:, 3]
+            long_gauss = 1. / (pulse.sigma * np.sqrt(2. * np.pi)) * \
+                np.exp(- (xvals - pulse.mu)**2 \
+                / (np.sqrt(2.) * pulse.sigma)**2)
+            long_gauss = long_gauss/np.max(long_gauss)
+            histvals = histvals / np.max(histvals)
+            mono_tau = fit.monofit(histvals, rates, xvals,
+                long_gauss, fluence, path, file_prefix)
+            bi_tau = fit.bifit(histvals, rates, xvals,
+                long_gauss, fluence, path, file_prefix)
+            tri_tau = fit.trifit(histvals, rates, xvals,
+                long_gauss, fluence, path, file_prefix)
+            # horrible way of doing this. but allows us to look at
+            # partially finished runs
+            np.savetxt(mt, np.array(mono_tau).reshape(1, 3))
+            np.savetxt(bt, np.array(bi_tau).reshape(1, 3))
+            np.savetxt(tt, np.array(tri_tau).reshape(1, 3))
 
     mt.close()
     bt.close()

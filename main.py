@@ -78,25 +78,26 @@ if __name__ == "__main__":
             if (run):
                 subprocess.run(['./f_iter', it.params_file], check=True)
 
-        hist = np.loadtxt("{}/{}_counts.dat".format(path, file_prefix))
-        xvals = hist[:, 0]
-        histvals = hist[:, 2] + hist[:, 3]
-        long_gauss = 1. / (pulse.sigma * np.sqrt(2. * np.pi)) * \
-            np.exp(- (xvals - pulse.mu)**2 \
-            / (np.sqrt(2.) * pulse.sigma)**2)
-        long_gauss = long_gauss/np.max(long_gauss)
-        histvals = histvals / np.max(histvals)
-        mono_tau = fit.monofit(histvals, rates, xvals,
-            long_gauss, fluence, path, file_prefix)
-        bi_tau = fit.bifit(histvals, rates, xvals,
-            long_gauss, fluence, path, file_prefix)
-        tri_tau = fit.trifit(histvals, rates, xvals,
-            long_gauss, fluence, path, file_prefix)
-        # horrible way of doing this. but allows us to look at
-        # partially finished runs
-        np.savetxt(mt, np.array(mono_tau).reshape(1, 3))
-        np.savetxt(bt, np.array(bi_tau).reshape(1, 3))
-        np.savetxt(tt, np.array(tri_tau).reshape(1, 3))
+        if os.path.isfile("{}/{}_counts.dat".format(path, file_prefix)):
+            hist = np.loadtxt("{}/{}_counts.dat".format(path, file_prefix))
+            xvals = hist[:, 0] + ((hist[0, 1] - hist[0, 0]) / 2.)
+            histvals = hist[:, 2] + hist[:, 3]
+            long_gauss = 1. / (pulse.sigma * np.sqrt(2. * np.pi)) * \
+                np.exp(- (xvals - pulse.mu)**2 \
+                / (np.sqrt(2.) * pulse.sigma)**2)
+            long_gauss = long_gauss/np.max(long_gauss)
+            histvals = histvals / np.max(histvals)
+            mono_tau = fit.monofit(histvals, rates, xvals,
+                long_gauss, fluence, path, file_prefix)
+            bi_tau = fit.bifit(histvals, rates, xvals,
+                long_gauss, fluence, path, file_prefix)
+            tri_tau = fit.trifit(histvals, rates, xvals,
+                long_gauss, fluence, path, file_prefix)
+            # horrible way of doing this. but allows us to look at
+            # partially finished runs
+            np.savetxt(mt, np.array(mono_tau).reshape(1, 3))
+            np.savetxt(bt, np.array(bi_tau).reshape(1, 3))
+            np.savetxt(tt, np.array(tri_tau).reshape(1, 3))
 
     mt.close()
     bt.close()

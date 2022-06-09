@@ -148,6 +148,10 @@ def monofit(histvals, rates, xvals, irf, fluence, path, file_prefix):
         error = result.params["tau_1"].stderr
         if error is None:
             error = np.nan
+        r = open("{}/{}_mono_report.dat".format(path, file_prefix), "w")
+        r.write(result.fit_report())
+        r.write("\nLifetime (mono) = {} +/- {} ps".format(lifetime, error))
+        r.close()
         print("Lifetime (mono) = {} +/- {} ps".format(lifetime, error))
         plt.figure()
         plt.subplot(2, 1, 1)
@@ -184,6 +188,10 @@ def bifit(histvals, rates, xvals, irf, fluence, path, file_prefix):
         error = bi_error(result)
         if error is None:
             error = np.nan
+        r = open("{}/{}_bi_report.dat".format(path, file_prefix), "w")
+        r.write(result.fit_report())
+        r.write("\nLifetime (bi) = {} +/- {} ps".format(lifetime, error))
+        r.close()
         print("Lifetime (bi) = {} +/- {} ps".format(lifetime, error))
         plt.figure()
         plt.subplot(2, 1, 1)
@@ -223,6 +231,10 @@ def trifit(histvals, rates, xvals, irf, fluence, path, file_prefix):
         error = tri_error(result)
         if error is None:
             error = np.nan
+        r = open("{}/{}_tri_report.dat".format(path, file_prefix), "w")
+        r.write(result.fit_report())
+        r.write("\nLifetime (tri) = {} +/- {} ps".format(lifetime, error))
+        r.close()
         print("Lifetime (tri) = {} +/- {} ps".format(lifetime, error))
         plt.figure()
         plt.subplot(2, 1, 1)

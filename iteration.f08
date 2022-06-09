@@ -227,8 +227,12 @@ program iteration
       do i = 0, nmax
         do j = 0, nmax
           ! entropy factor for n_donor = i, n_acceptor = j
-          ds(i, j) = hopping_rate * &
-                   ((i * (15.0 - j)) / ((j + 1) * (15.0 - i + 1))) 
+          if (i.le.j) then
+            ds(i, j) = hopping_rate * &
+                     ((i * (15.0 - j)) / ((j + 1) * (15.0 - i + 1))) 
+          else
+            ds(i, j) = hopping_rate
+          end if
           write(*, '(F10.6, a)', advance="no") ds(i, j), " "
         end do
         write(*, *)

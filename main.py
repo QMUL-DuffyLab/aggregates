@@ -18,40 +18,44 @@ if __name__ == "__main__":
         fit_only = sys.argv[1]
     else:
         fit_only = False
+    run = True # set to true to run, false to generate input files
     r = 5.
-    lattice_type = "line"
-    n_iter = 110 # 434 trimers for honeycomb
+    lattice_type = "hex"
+    n_iter = 8 # set to 8 for hex/honeycomb, 10 for square, 110 or so for line!
     if lattice_type == "honeycomb":
         n_iter = n_iter / 2 # 2 atom basis
     max_count = 10000
     binwidth = 25.
-    rho_quenchers = 0.0
+    rho_quenchers = 0.85
     # fluences given here as photons per pulse per unit area - 485nm
     fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
             1.9E14, 3.22E14, 6.12E14, 9.48E14]
     # annihilation, pool decay, pq decay, q decay
+    hop = 25.
+    chl_decay = 3600.
+    lut_decay = 10.
+    ann = 50.
     rates_dict = {
-     'hopping_only': Rates(25., 3600., 3600., 14., np.inf, np.inf,
-         np.inf, np.inf, 50., [False, True, True, False], True, True),
-     'lut_eet': Rates(20., 3600., 3600., 14.,
-         7., 1., 20., np.inf, 50., [False, True, True, False], True, True),
-     'schlau_cohen': Rates(20., 3600., 3600., 14.,
-         7., 1., 0.4, np.inf, 50., [False, True, True, False], True, True),
-     'mennucci': Rates(20., 3600., 3600., 14.,
-         7., 1., 29., 43., 50., [False, True, True, False], True, True),
-     'holzwarth': Rates(20., 3600., 3600., 833.,
-         180., 550., 260., 3300., 50., [False, True, False, False], True, True),
-     'exciton': Rates(20., 3600., 40., 40.,
-         7., 1., 1000., 1000., 50., [False, True, False, False], True, True),
+     'hopping_only': Rates(hop, chl_decay, chl_decay, lut_decay, np.inf, np.inf,
+         np.inf, np.inf, ann, [False, True, True, False], True, True),
+     'lut_eet': Rates(hop, chl_decay, chl_decay, lut_decay,
+         5., 1., 20., np.inf, ann, [False, True, True, False], True, True),
+     'schlau_cohen': Rates(hop, chl_decay, chl_decay, lut_decay,
+         5., 1., 0.4, np.inf, ann, [False, True, True, False], True, True),
+     'mennucci': Rates(hop, chl_decay, chl_decay, lut_decay,
+         5., 1., 29., 43., ann, [False, True, True, False], True, True),
+     'holzwarth': Rates(hop, chl_decay, chl_decay, 833.,
+         180., 550., 260., 3300., ann, [False, True, False, False], True, True),
+     'exciton': Rates(hop, chl_decay, 40., 40.,
+         5., 1., 1000., 1000., ann, [False, True, False, False], True, True),
      }
-    rates_key = 'hopping_only'
+    rates_key = 'lut_eet'
     path = "out/{}/{}".format(rates_key, lattice_type)
     os.makedirs(path, exist_ok=True)
     # for rates in rates_dict:
     #     for lattice in ["line", "square", "hex", "honeycomb"]:
     rates = rates_dict[rates_key]
     pulse = Pulse(fwhm=50., mu=100.)
-    run = False # set to true to run, false to generate input files
     mt = open("{}/{:3.2f}_mono_tau.dat".format(path, rho_quenchers), "w")
     bt = open("{}/{:3.2f}_bi_tau.dat".format(path, rho_quenchers), "w")
     tt = open("{}/{:3.2f}_tri_tau.dat".format(path, rho_quenchers), "w")
@@ -75,7 +79,7 @@ if __name__ == "__main__":
                 subprocess.run(['./f_iter', it.params_file], check=True)
 
         hist = np.loadtxt("{}/{}_counts.dat".format(path, file_prefix))
-        xvals = hist[:, 0] + ((hist[0, 1] - hist[0, 0]) / 2.)
+        xvals = hist[:, 0]
         histvals = hist[:, 2] + hist[:, 3]
         long_gauss = 1. / (pulse.sigma * np.sqrt(2. * np.pi)) * \
             np.exp(- (xvals - pulse.mu)**2 \

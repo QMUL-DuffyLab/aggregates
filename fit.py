@@ -135,7 +135,7 @@ def tri_error(fit):
 def monofit(histvals, rates, xvals, irf, fluence, path, file_prefix):
     weights = 1/np.sqrt(histvals + 1)
     mod = Model(monoexprisemodel, independent_vars=('x', 'irf'))
-    pars = mod.make_params(tau_1 = 1./rates.k_ann,
+    pars = mod.make_params(tau_1 = 1./rates.g_pool,
             a_1 = 1., y0 = 0., x0 = 0)
     pars['x0'].vary = True
     pars['y0'].vary = True
@@ -146,6 +146,8 @@ def monofit(histvals, rates, xvals, irf, fluence, path, file_prefix):
         res = result.best_values
         lifetime = res["tau_1"]
         error = result.params["tau_1"].stderr
+        if error is None:
+            error = np.nan
         print("Lifetime (mono) = {} +/- {} ps".format(lifetime, error))
         plt.figure()
         plt.subplot(2, 1, 1)
@@ -180,6 +182,8 @@ def bifit(histvals, rates, xvals, irf, fluence, path, file_prefix):
         lifetime = ((res["a_1"] * res["tau_1"] + res["a_2"] * res["tau_2"])
                 / (res["a_1"] + res["a_2"]))
         error = bi_error(result)
+        if error is None:
+            error = np.nan
         print("Lifetime (bi) = {} +/- {} ps".format(lifetime, error))
         plt.figure()
         plt.subplot(2, 1, 1)
@@ -217,6 +221,8 @@ def trifit(histvals, rates, xvals, irf, fluence, path, file_prefix):
             + res["a_3"] * res["tau_3"]) 
         / (res["a_1"] + res["a_2"] + res["a_3"]))
         error = tri_error(result)
+        if error is None:
+            error = np.nan
         print("Lifetime (tri) = {} +/- {} ps".format(lifetime, error))
         plt.figure()
         plt.subplot(2, 1, 1)

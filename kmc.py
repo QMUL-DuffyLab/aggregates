@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import sys, os
 import numpy as np
+import cv2
 from trimer import Aggregate
 
 class Pulse():
@@ -41,7 +42,6 @@ class Rates():
 
 class Iteration():
     import numpy as np
-    import cv2
     '''
     Take an aggregate - either one constructed from an experimental image
     or a generated one - populate it with a fraction of quenchers and a
@@ -108,69 +108,6 @@ class Iteration():
             self.base_rates[i] = t
         return self.base_rates
 
-    def draw(self, filename):
-        import cv2
-        '''
-        draw the current state of the system.
-        pretty ugly to do this manually in opencv
-        imo. but it's quick and it works
-        '''
-        font = cv2.FONT_HERSHEY_DUPLEX
-        xmax = np.max([np.abs(t.x) for t in self.aggregate.trimers])
-        scale = 4
-        pic_side = (2 * scale * int(xmax + 4 *
-            self.aggregate.trimers[0].r))
-        # the + 200 is to add space to put pre-quencher,
-        # quencher, time and population details in
-        img = np.zeros((pic_side + 200,
-            pic_side + 200, 3), np.uint8)
-        for i, t in enumerate(self.aggregate.trimers):
-            if self.quenchers[i]:
-                colour = (232, 139, 39)
-            else:
-                colour = (255, 255, 255)
-            cv2.circle(img, (int(scale * (t.y + xmax + 2. * t.r)),
-                int(scale * (t.x + xmax + 2. * t.r))),
-                int(scale * t.r), colour, -1)
-            if (self.n_i[i] != 0):
-                # coloured circle to indicate exciton
-                cv2.circle(img, (int(scale * (t.y + xmax + 2. * t.r)),
-                    int(scale * (t.x + xmax + 2. * t.r))),
-                    int(scale * 0.75 * t.r), (26, 0, 153), -1)
-                cv2.putText(img, "{:1d}".format(self.n_i[i]),
-                        (scale * int(t.y + xmax + 1.75 * t.r),
-                    scale * int(t.x + xmax + 2.25 * t.r)),
-                        font, 0.75, (255, 255, 255), 3)
-        # pre-quencher
-        pq_colour = (0, 94, 20)
-        cv2.rectangle(img, pt1=(pic_side + 5, 100),
-            pt2=(pic_side + 55, 150),
-            color=pq_colour, thickness=-1)
-        cv2.putText(img, "{:2d}".format(self.n_i[-2]),
-                (pic_side + 5, 135),
-                font, 1, (255, 255, 255), 2)
-        cv2.putText(img, "PQ",
-                (pic_side + 15, 90),
-                font, 0.75, pq_colour, 3)
-        # quencher
-        q_colour = (60, 211, 242)
-        cv2.rectangle(img, pt1=(pic_side + 5, 200), 
-            pt2=(pic_side + 55, 250),
-            color=q_colour, thickness=-1)
-        cv2.putText(img, "{:2d}".format(self.n_i[-1]),
-                (pic_side + 5, 235),
-                font, 1, (255, 255, 255), 2)
-        cv2.putText(img, "Q",
-                (pic_side + 20, 190),
-                font, 0.75, q_colour, 3)
-        cv2.putText(img, "t = {:6.2f}ps".format(self.t),
-                (pic_side + 5, 300),
-                font, 0.75, (255, 255, 255), 2)
-        cv2.putText(img, "n = {:02d}".format(np.sum(self.n_i)),
-                (pic_side + 5, 350),
-                font, 0.75, (255, 255, 255), 2)
-        cv2.imwrite(filename, img)
-
     def write_arrays(self, path, binwidth, max_count):
         prefix = "{:3.2f}_{:4.2E}".format(
                 self.rho_quenchers, self.fluence)
@@ -197,3 +134,5 @@ class Iteration():
             f.write(rates_file)
             f.write("\n")
             f.write(neighbours_file)
+            f.write("\n")
+            f.write(str(self.model.emissive))

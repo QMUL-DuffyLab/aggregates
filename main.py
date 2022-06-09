@@ -3,76 +3,71 @@
 import sys, os, time
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
 import subprocess
+import argparse
 from lmfit import Model
 from scipy import signal
 import fit
+import defaults
 from trimer import check_neighbours, Aggregate, theoretical_aggregate
 from kmc import Pulse, Rates, Iteration
 
 if __name__ == "__main__":
     start_time = time.monotonic()
-    if (len(sys.argv) > 1):
-        fit_only = sys.argv[1]
-    else:
-        fit_only = False
+    parser = argparse.ArgumentParser(description="set up aggregate simualtion")
+    parser.add_argument('-pr', '--protein_radius', type=float,
+            default=defaults.protein_r,
+            help="Radius of the protein - only relevant when packing real aggregates")
+    parser.add_argument('-n', '--n_trimers', type=int, default=defaults.n_trimers,
+            help="Number of trimers (approximate) to put in the aggregate")
+    parser.add_argument('-mc', '--max_count', type=int, default=defaults.max_count,
+            help="Maximum count for a given bin in the histogram")
+    parser.add_argument('-bw', '--binwidth', type=float, default=defaults.binwidth,
+            help="Binwidth for the histogram")
+    parser.add_argument('-pw', '--pulsewidth', type=float, default=defaults.pulse_fwhm,
+            help="Full width half maximum of the pulse (ps)")
+    parser.add_argument('-pm', '--pulse_mean', type=float, default=defaults.pulse_mu,
+            help="Peak time of the pulse (ps)")
+    parser.add_argument('-q', '--rho_q', type=float, required=True,
+            help=r'Density of quenchers \rho_q')
+    parser.add_argument('-l', '--lattice', type=str, required=True,
+            help="Lattice type - options are: 'hex', 'honeycomb', 'square', 'line'")
+    parser.add_argument('-m', '--model', type=str, required=True,
+            help='''
+Quenching model to use - options are:
+'hop_only', 'irrev', 'rev', 'fast_irrev', 'slow', 'exciton'.
+See defaults.py for specific numbers''')
+    parser.add_argument('--fit_only', type=argparse.BooleanOptionalAction,
+            help="Pass to disable running the code and just re-fit the data")
+    args = parser.parse_args()
+    print(args)
     run = True # set to true to run, false to generate input files
-    r = 5.
-    lattice_type = "square"
-    n_max = 200 # set to 8 for hex/honeycomb, 10 for square, 110 or so for line!
-    max_count = 10000
-    binwidth = 25.
-    rho_quenchers = 0.85
     # fluences given here as photons per pulse per unit area - 485nm
     fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
             1.9E14, 3.22E14, 6.12E14, 9.48E14]
     # annihilation, pool decay, pq decay, q decay
-    hop = 25.
-    chl_decay = 3600.
-    lut_decay = 10.
-    ann = 50.
-    rates_dict = {
-     'hopping_only': Rates(hop, chl_decay, chl_decay, lut_decay, np.inf, np.inf,
-         np.inf, np.inf, ann, [False, True, True, False], True, True),
-     'lut_eet': Rates(hop, chl_decay, chl_decay, lut_decay,
-         5., 1., 20., np.inf, ann, [False, True, True, False], True, True),
-     'schlau_cohen': Rates(hop, chl_decay, chl_decay, lut_decay,
-         5., 1., 0.4, np.inf, ann, [False, True, True, False], True, True),
-     'mennucci': Rates(hop, chl_decay, chl_decay, lut_decay,
-         5., 1., 20., 20., ann, [False, True, True, False], True, True),
-     'holzwarth': Rates(hop, chl_decay, chl_decay, 833.,
-         180., 550., 260., 3300., ann, [False, True, False, False], True, True),
-     'exciton': Rates(hop, chl_decay, 40., 40.,
-         5., 1., 1000., 1000., ann, [False, True, False, False], True, True),
-     }
-    rates_key = 'lut_eet'
-    path = "out/{}/{}".format(rates_key, lattice_type)
+    path = "out/{}/{}".format(args.model, args.lattice)
     os.makedirs(path, exist_ok=True)
-    # for rates in rates_dict:
-    #     for lattice in ["line", "square", "hex", "honeycomb"]:
-    rates = rates_dict[rates_key]
-    pulse = Pulse(fwhm=50., mu=100.)
-    mt = open("{}/{:3.2f}_mono_tau.dat".format(path, rho_quenchers), "w")
-    bt = open("{}/{:3.2f}_bi_tau.dat".format(path, rho_quenchers), "w")
-    tt = open("{}/{:3.2f}_tri_tau.dat".format(path, rho_quenchers), "w")
-    for fluence in fluences:
+    rates = defaults.rates_dict[args.model]
+    pulse = Pulse(fwhm=args.pulsewidth, mu=args.pulse_mean)
+    mt = open("{}/{:3.2f}_mono_tau.dat".format(path, args.rho_q), "w")
+    bt = open("{}/{:3.2f}_bi_tau.dat".format(path, args.rho_q), "w")
+    tt = open("{}/{:3.2f}_tri_tau.dat".format(path, args.rho_q), "w")
+    for fluence in defaults.fluences:
         print("Fluence = {:4.2E}".format(
             fluence))
         os.makedirs(path, exist_ok=True)
         file_prefix = "{:3.2f}_{:4.2E}".format(
-                rho_quenchers, fluence)
+                args.rho_q, fluence)
 
-        if not fit_only:
+        if not args.fit_only:
             verbose = False
             # note - second parameter here is the nn cutoff. set to 0 to
             # disable excitation hopping between trimers
-            agg = theoretical_aggregate(r, 2.01 * r, lattice_type, n_max)
-            quit()
-            it = Iteration(agg, rates, pulse,
-                    rho_quenchers,
-                    path, fluence, binwidth, max_count,
+            agg = theoretical_aggregate(args.protein_radius, 
+                    2.01 * args.protein_radius, args.lattice, args.n_trimers)
+            it = Iteration(agg, rates, pulse, args.rho_q,
+                    path, fluence, args.binwidth, args.max_count,
                     verbose=verbose)
             if (run):
                 subprocess.run(['./f_iter', it.params_file], check=True)
@@ -103,4 +98,4 @@ if __name__ == "__main__":
     tt.close()
     end_time = time.monotonic()
     print("Total time elapsed: {}".format((end_time - start_time)))
-    subprocess.run(['python', 'plot_tau.py', '{}'.format(path), '{:3.2f}'.format(rho_quenchers)], check=True)
+    subprocess.run(['python', 'plot_tau.py', '{}'.format(path), '{:3.2f}'.format(args.rho_q)], check=True)

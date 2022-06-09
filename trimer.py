@@ -44,7 +44,7 @@ def real_aggregate(r, nn_cutoff, img, n, max_pulls, component):
     A = nn_adj(trimers, nn_cutoff) 
     return Aggregate(trimers, A, img)
 
-def theoretical_aggregate(r, nn_cutoff, lattice_type, n_iter):
+def theoretical_aggregate(r, nn_cutoff, lattice_type, n_max):
     from shapefill import Circle
     if lattice_type == "line":
         basis = [[0,0]]
@@ -79,8 +79,8 @@ def theoretical_aggregate(r, nn_cutoff, lattice_type, n_iter):
     sites = []
     sites.append(Circle(basis[0][0], basis[0][1], r - 0.000001))
 
-    i = 0
-    while i < n_iter:
+    n_sites = len(sites)
+    while n_sites <= (n_max / len(basis)):
         new_sites = []
         for site in sites:
             for n in nn_vectors:
@@ -97,7 +97,7 @@ def theoretical_aggregate(r, nn_cutoff, lattice_type, n_iter):
                         for a in b]):
                     new_sites.append(c)
         sites.extend(new_sites)
-        i += 1
+        n_sites = len(sites)
 
     trimers = []
     xmax = 0.
@@ -111,12 +111,14 @@ def theoretical_aggregate(r, nn_cutoff, lattice_type, n_iter):
             else:
                 print("Trimer collision!!!")
 
+    xmax = 4. * xmax
     # do this after appending all the trimers to
     # ensure that A_{ij} and nn pairs are symmetric
     A = nn_adj(trimers, nn_cutoff)
     img = np.zeros((2 * int(xmax + 4. * r),
         2 * int(xmax + 4. * r), 3), np.uint8)
 
+    xmax = xmax / 2.
     # we draw lines below to check that the nn_cutoff is sensible,
     # but don't want the lines on img which will be used
     # to calculate fractal dimension, so make a copy first
@@ -124,13 +126,13 @@ def theoretical_aggregate(r, nn_cutoff, lattice_type, n_iter):
     for i, t1 in enumerate(trimers):
         trimers[i].add_index(i)
         cv2.circle(img, (int(t1.y + xmax + 2. * r),
-            int(t1.x + xmax + 2. * r)), int(t1.r), (255, 255, 255), -1)
-        cv2.circle(colour_img, (int(t1.y + xmax + 2. * r),
-            int(t1.x + xmax + 2. * r)), int(t1.r), (255, 255, 255), -1)
+            int(t1.x + xmax + 2. * r)), int(2 * t1.r), (255, 255, 255), -1)
+        cv2.circle(colour_img, (2 * int(t1.y + xmax + 2. * r),
+            2 * int(t1.x + xmax + 2. * r)), int(2 * t1.r), (255, 255, 255), -1)
         for j, t2 in enumerate(t1.get_neighbours()):
-            cv2.line(colour_img, (int(t1.y + xmax + 2. * r),
-            int(t1.x + xmax + 2. * r)), (int(t2.y + xmax + 2. * r),
-            int(t2.x + xmax + 2. * r)), (232, 139, 39))
+            cv2.line(colour_img, (2 * int(t1.y + xmax + 2. * r),
+            2 * int(t1.x + xmax + 2. * r)), (2 * int(t2.y + xmax + 2. * r),
+            2 * int(t2.x + xmax + 2. * r)), (232, 139, 39))
 
     cv2.imwrite("components/{}_lattice_cv2_neighbours.jpg".format(lattice_type),
             colour_img)

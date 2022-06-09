@@ -20,10 +20,8 @@ if __name__ == "__main__":
         fit_only = False
     run = True # set to true to run, false to generate input files
     r = 5.
-    lattice_type = "hex"
-    n_iter = 8 # set to 8 for hex/honeycomb, 10 for square, 110 or so for line!
-    if lattice_type == "honeycomb":
-        n_iter = n_iter / 2 # 2 atom basis
+    lattice_type = "square"
+    n_max = 200 # set to 8 for hex/honeycomb, 10 for square, 110 or so for line!
     max_count = 10000
     binwidth = 25.
     rho_quenchers = 0.85
@@ -43,7 +41,7 @@ if __name__ == "__main__":
      'schlau_cohen': Rates(hop, chl_decay, chl_decay, lut_decay,
          5., 1., 0.4, np.inf, ann, [False, True, True, False], True, True),
      'mennucci': Rates(hop, chl_decay, chl_decay, lut_decay,
-         5., 1., 29., 43., ann, [False, True, True, False], True, True),
+         5., 1., 20., 20., ann, [False, True, True, False], True, True),
      'holzwarth': Rates(hop, chl_decay, chl_decay, 833.,
          180., 550., 260., 3300., ann, [False, True, False, False], True, True),
      'exciton': Rates(hop, chl_decay, 40., 40.,
@@ -70,7 +68,8 @@ if __name__ == "__main__":
             verbose = False
             # note - second parameter here is the nn cutoff. set to 0 to
             # disable excitation hopping between trimers
-            agg = theoretical_aggregate(r, 2.01 * r, lattice_type, n_iter)
+            agg = theoretical_aggregate(r, 2.01 * r, lattice_type, n_max)
+            quit()
             it = Iteration(agg, rates, pulse,
                     rho_quenchers,
                     path, fluence, binwidth, max_count,

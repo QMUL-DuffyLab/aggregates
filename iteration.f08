@@ -9,11 +9,16 @@ program iteration
   real, parameter :: pi = 3.1415926535
 
   character(len=200) :: params_file, rates_file, neighbours_file,&
-    counts_file, prefix_long
+    counts_file, prefix_long, emissive_str
   character(len=:), allocatable :: file_path, prefix
   logical(c_bool), dimension(:), allocatable :: is_quencher
-  integer(ip) :: i, j, k, n_sites, max_neighbours, rate_size,&
-    n_current, seed_size, max_count, n_quenchers, mpierr, rank, num_procs
+  logical(c_bool) :: emissive(4)
+  integer(ip) :: i, j, k, n_sites, max_neighbours, rate_size, n_current,&
+    seed_size, max_count, curr_max_count, n_quenchers, mpierr, rank,&
+    num_procs
+  integer(ip), dimension(1) :: maxloc_temp_index
+  integer(ip), dimension(4) :: curr_counts
+  integer(ip), dimension(4, 1) :: curr_locs
   integer(ip), dimension(:), allocatable :: n_i, n_pq, n_q, quenchers, seed
   integer(ip), dimension(:), allocatable :: neighbours_temp
   integer(ip), dimension(:, :), allocatable :: neighbours, counts
@@ -51,10 +56,11 @@ program iteration
   ds = entropic_penalties(base_rates(2))
 
   i = 0
+  curr_max_count = 0
   ! keep iterating till we get a decent number of counts
   ! pool decays and pre-quencher decays are emissive, so
   ! those are what we're concerned with for the fit
-  do while ((maxval(counts(2, :)) + maxval(counts(3, :))).lt.max_count)
+  do while (curr_max_count.lt.max_count)
     seed = (i * num_procs) + rank
     ! write(*, *) "Process ", rank, " has seed ", (i * num_procs) + rank,&
     !   " for sample ", i
@@ -62,9 +68,6 @@ program iteration
     is_quencher = .false.
     call allocate_quenchers(n_quenchers, is_quencher, quenchers)
     call fix_base_rates()
-    if (mod(i, 100).eq.0) then
-      write(*, *) i, rank, [(maxval(counts(j, :)), j = 1, 4)]
-    end if
     n_i = 0
     n_pq = 0
     n_q = 0
@@ -79,9 +82,40 @@ program iteration
       call mc_step(dt, n_quenchers)
     end do
     i = i + 1
+
+    if (mod(i, 100).eq.0) then
+      ! NB: in theory to do this we have to add together all the emissive
+      ! counts, and we could do that, but it's unecessary since we don't need
+      ! exactly max_counts counts, it's just to get better statistics.
+      ! hence, just take the current highest count for each emissive process.
+      ! find the location (which bin) each is in. maxloc(curr_counts) gives us
+      ! which of those is largest; assume this bin will give the largest sum.
+      ! curr_locs(maxloc(curr_counts)) gives this bin. then 
+      ! sum all the emissive decays in that bin
+      curr_counts = 0
+      curr_locs = 0
+      do j = 1,4
+        if (emissive(j)) then
+          curr_counts(j) = maxval(counts(j, :))
+          curr_locs(j, :) = int(maxloc(counts(j, :)))
+        end if
+      end do
+      k = 0
+      do j = 1, 4
+        if (emissive(j)) then
+          ! maxloc returns an array - very irritating!!!!!
+          maxloc_temp_index = curr_locs(maxloc(curr_counts), 1)
+          k = k + counts(j, maxloc_temp_index(1))
+        end if
+      end do
+      curr_max_count = k
+      write(*, *) i, rank, [(maxval(counts(j, :)), j = 1, 4)],&
+        "max_count = ", curr_max_count
+    end if
+    
   end do
   write(*, *) "Process ", rank, " has max count ",&
-    maxval(counts(2, :)) + maxval(counts(3, :))
+    curr_max_count
 
   ! write(*, *) "]."
   call MPI_Barrier(MPI_COMM_WORLD, mpierr)
@@ -125,10 +159,13 @@ program iteration
       read(20, *) fwhm
       read(20, *) binwidth
       read(20, *) max_count
+      read(20, '(a)') emissive_str
       read(20, '(a)') rates_file
       read(20, '(a)') neighbours_file
       close(20)
 
+      ! check which decays are emissive
+      read(unit=emissive_str, fmt=*) emissive 
       ! note - rate_size is set to this because there are a maximum
       ! of five processes that can happen on any given site that aren't
       ! hopping (four on a pool chlorophyll, five on pq, four on q).

@@ -131,8 +131,9 @@ class Iteration():
             f.write("{:f}\n".format(self.pulse.fwhm))
             f.write("{:f}\n".format(binwidth))
             f.write("{:d}\n".format(max_count))
+            # [1:-1] here because fortran doesn't like parsing the [ ]
+            f.write(str(self.model.emissive)[1:-1])
+            f.write("\n")
             f.write(rates_file)
             f.write("\n")
             f.write(neighbours_file)
-            f.write("\n")
-            f.write(str(self.model.emissive))

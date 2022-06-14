@@ -64,6 +64,7 @@ per trimer will also need to be changed.
         mt = open("{}/{:3.2f}_mono_tau.dat".format(path, args.rho_q), "w")
         bt = open("{}/{:3.2f}_bi_tau.dat".format(path, args.rho_q), "w")
         tt = open("{}/{:3.2f}_tri_tau.dat".format(path, args.rho_q), "w")
+        # st = open("{}/{:3.2f}_tau_min_error.dat".format(path, args.rho_q), "w")
     for fluence in args.fluences:
         print("Fluence = {:4.2E}".format(
             fluence))
@@ -100,9 +101,11 @@ per trimer will also need to be changed.
                 long_gauss, fluence, path, file_prefix)
             # horrible way of doing this. but allows us to look at
             # partially finished runs
-            np.savetxt(mt, np.array(mono_tau).reshape(1, 3))
-            np.savetxt(bt, np.array(bi_tau).reshape(1, 3))
-            np.savetxt(tt, np.array(tri_tau).reshape(1, 3))
+            np.savetxt(mt, np.array(mono_tau[1]).reshape(1, 3))
+            np.savetxt(bt, np.array(bi_tau[1]).reshape(1, 3))
+            np.savetxt(tt, np.array(tri_tau[1]).reshape(1, 3))
+            fit.plot_fits(mono_tau, bi_tau, tri_tau, histvals,
+                    xvals, args.model, "{}/{}".format(path, file_prefix))
 
     if not args.files_only:
         mt.close()

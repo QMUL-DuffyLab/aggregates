@@ -166,11 +166,13 @@ def monofit(histvals, rates, xvals, irf, fluence, path, file_prefix):
         print("Monoexponential fit failed!")
         lifetime = np.nan
         error = np.nan
+        result = None
     except TypeError:
         print("Monoexponential fit couldn't estimate covariances!")
         lifetime = np.nan
         error = np.nan
-    return [fluence, lifetime, error]
+        result = None
+    return (result, [fluence, lifetime, error])
 
 def bifit(histvals, rates, xvals, irf, fluence, path, file_prefix):
     weights = 1/np.sqrt(histvals + 1)
@@ -207,11 +209,13 @@ def bifit(histvals, rates, xvals, irf, fluence, path, file_prefix):
         print("Biexponential fit failed!")
         lifetime = np.nan
         error = np.nan
+        result = None
     except TypeError:
         print("Biexponential fit couldn't estimate covariances!")
         lifetime = np.nan
         error = np.nan
-    return [fluence, lifetime, error]
+        result = None
+    return (result, [fluence, lifetime, error])
 
 def trifit(histvals, rates, xvals, irf, fluence, path, file_prefix):
     weights = 1/np.sqrt(histvals + 1)
@@ -251,8 +255,39 @@ def trifit(histvals, rates, xvals, irf, fluence, path, file_prefix):
         print("Triexponential fit failed!")
         lifetime = np.nan
         error = np.nan
+        result = None
     except TypeError:
         print("Triexponential fit couldn't estimate covariances!")
         lifetime = np.nan
         error = np.nan
-    return [fluence, lifetime, error]
+        result = None
+    return (result, [fluence, lifetime, error])
+
+def plot_fits(m, b, t, histvals, xvals, key, filename):
+    fig, ax = plt.subplots()
+    plt.semilogy(xvals, histvals, lw=2.0, color='k', marker='o', fillstyle='none', label="Counts")
+    fluence = 0.
+    if m[0] is not None:
+        plt.semilogy(xvals, m[0].best_fit, label=r'Mono: $ \tau = $' + '{:4.2f}'.format(m[1][1]) + r'$ \pm $' + '{:4.2f}'.format(m[1][2]))
+        fluence = m[1][0]
+    if b[0] is not None:
+        plt.semilogy(xvals, b[0].best_fit, label=r'Bi: $ \tau = $' + '{:4.2f}'.format(b[1][1]) + r'$ \pm $' + '{:4.2f}'.format(b[1][2]))
+        fluence = b[1][0]
+    if t[0] is not None:
+        plt.semilogy(xvals, t[0].best_fit, label=r'Tri: $ \tau = $' + '{:4.2f}'.format(t[1][1]) + r'$ \pm $' + '{:4.2f}'.format(t[1][2]))
+        fluence = t[1][0]
+
+    plt.legend(prop={'size': 16})
+    ax.set_xlim([0., 2000.])
+    ax.set_xlabel("Time (ps)")
+    ax.set_ylabel("Counts (norm.)")
+    plt.title("Model = {}, fluence = {:4.2E}".format(key, fluence))
+    fig.savefig("{}_fits.pdf".format(filename))
+
+
+'''
+NB: could be possible to add one ExponentialModel at a time, name the parameters programatically
+via e.g. "a{:1d}".format(n), then use parameter hints to add the lifetime via
+set_param_hint('tau', expr='a{:1d} * tau{:1d}'.format(n)).
+would have to add all the as and taus together though. can it do the derivative of this symbolically?
+'''

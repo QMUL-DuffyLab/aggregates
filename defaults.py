@@ -25,7 +25,9 @@ rates_dict = {
  'rev': Rates(hop, chl_decay, chl_decay, car_decay, # mennucci
      5., 1., 20., 20., ann, [False, True, True, False], True, True),
  'fast_irrev': Rates(hop, chl_decay, chl_decay, car_decay, # schlau-cohen
-     5., 1., 0.4, np.inf, ann, [False, True, True, False], True, True),
+     5., 1., 0.5, np.inf, ann, [False, True, True, False], True, True),
+ 'fast_rev': Rates(hop, chl_decay, chl_decay, car_decay, # schlau-cohen
+     5., 1., 0.5, 0.5, ann, [False, True, True, False], True, True),
  'slow': Rates(hop, chl_decay, chl_decay, 833., # holzwarth
      180., 550., 260., 3300., ann, [False, True, False, False], True, True),
  'exciton': Rates(hop, chl_decay, 40., 40.,

@@ -82,6 +82,8 @@ per trimer will also need to be changed.
                     path, fluence, args.binwidth, args.max_count,
                     verbose=verbose)
             if not args.files_only:
+                # this doesn't work because anaconda overwrites all my aliases and conflicts with the system mpi i installed myself, because it's fucking useless
+                # subprocess.run(['mpirun', '-np', ' 4', './f_iter', it.params_file], check=True)
                 subprocess.run(['./f_iter', it.params_file], check=True)
 
         if os.path.isfile("{}/{}_counts.dat".format(path, file_prefix)):

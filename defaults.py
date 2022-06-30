@@ -17,19 +17,21 @@ hop = 25. # hopping rate between trimers
 chl_decay = 3600. # decay of a chlorophyll
 car_decay = 10. # decay of the carotenoid
 ann = 50. # annihilation rate for excitons on same trimer
+pool_to_pq = 5.
+pq_to_pool = 1.
 rates_dict = {
  'hop_only': Rates(hop, chl_decay, chl_decay, car_decay, np.inf, np.inf,
      np.inf, np.inf, ann, [False, True, True, False], True, True),
  'irrev': Rates(hop, chl_decay, chl_decay, car_decay, # car-eet
-     5., 1., 20., np.inf, ann, [False, True, True, False], True, True),
+     pool_to_pq, pq_to_pool, 20., np.inf, ann, [False, True, True, False], True, True),
  'rev': Rates(hop, chl_decay, chl_decay, car_decay, # mennucci
-     5., 1., 20., 20., ann, [False, True, True, False], True, True),
+     pool_to_pq, pq_to_pool, 20., 20., ann, [False, True, True, False], True, True),
  'fast_irrev': Rates(hop, chl_decay, chl_decay, car_decay, # schlau-cohen
-     5., 1., 0.5, np.inf, ann, [False, True, True, False], True, True),
+     pool_to_pq, pq_to_pool, 1.1, np.inf, ann, [False, True, True, False], True, True),
  'fast_rev': Rates(hop, chl_decay, chl_decay, car_decay, # schlau-cohen
-     5., 1., 0.5, 0.5, ann, [False, True, True, False], True, True),
+     pool_to_pq, pq_to_pool, 1.1, 1.1, ann, [False, True, True, False], True, True),
  'slow': Rates(hop, chl_decay, chl_decay, 833., # holzwarth
      180., 550., 260., 3300., ann, [False, True, False, False], True, True),
  'exciton': Rates(hop, chl_decay, 40., 40.,
-     5., 1., 1000., 1000., ann, [False, True, False, False], True, True),
+     pool_to_pq, pq_to_pool, 1000., 1000., ann, [False, True, False, False], True, True),
  }

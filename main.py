@@ -28,6 +28,8 @@ Quenching model to use. Options are:
 'hop_only', 'irrev', 'rev', 'fast_irrev', 'slow', 'exciton'.
 See defaults.py for specific numbers''')
     # optional arguments
+    parser.add_argument('-pqe', '--po_pq_ent', type=float, required=False, default=defaults.pool_to_pq,
+    help="entropy ratio between hop from pool to pq and reverse")
     parser.add_argument('-pr', '--protein_radius', type=float,
             default=defaults.protein_r,
             help="Radius of the protein (nm) - only relevant when packing real aggregates")
@@ -59,18 +61,21 @@ per trimer will also need to be changed.
     path = "out/{}/{}".format(args.model, args.lattice)
     os.makedirs(path, exist_ok=True)
     rates = defaults.rates_dict[args.model]
+    rates.k_po_pq = rates.k_po_pq * args.po_pq_ent
+    rates.print()
     pulse = Pulse(fwhm=args.pulsewidth, mu=args.pulse_mean)
     if not args.files_only:
-        mt = open("{}/{:3.2f}_mono_tau.dat".format(path, args.rho_q), "w")
-        bt = open("{}/{:3.2f}_bi_tau.dat".format(path, args.rho_q), "w")
-        tt = open("{}/{:3.2f}_tri_tau.dat".format(path, args.rho_q), "w")
+        mt = open("{}/{:3.2f}_{:3.2f}_mono_tau.dat".format(path, args.rho_q, args.po_pq_ent), "w")
+        bt = open("{}/{:3.2f}_{:3.2f}_bi_tau.dat".format(path, args.rho_q, args.po_pq_ent), "w")
+        tt = open("{}/{:3.2f}_{:3.2f}_tri_tau.dat".format(path, args.rho_q, args.po_pq_ent), "w")
         # st = open("{}/{:3.2f}_tau_min_error.dat".format(path, args.rho_q), "w")
     for fluence in args.fluences:
         print("Fluence = {:4.2E}".format(
             fluence))
         os.makedirs(path, exist_ok=True)
-        file_prefix = "{:3.2f}_{:4.2E}".format(
-                args.rho_q, fluence)
+        file_prefix = "{:3.2f}_{:4.2E}_{:3.2f}_".format(
+                args.rho_q, fluence, args.po_pq_ent)
+        print("Prefix = {}".format(file_prefix))
 
         if not args.fit_only:
             verbose = False
@@ -79,15 +84,15 @@ per trimer will also need to be changed.
             agg = theoretical_aggregate(args.protein_radius,
                     2.01 * args.protein_radius, args.lattice, args.n_trimers)
             it = Iteration(agg, rates, pulse, args.rho_q,
-                    path, fluence, args.binwidth, args.max_count,
+                    path, file_prefix, fluence, args.binwidth, args.max_count,
                     verbose=verbose)
             if not args.files_only:
                 # this doesn't work because anaconda overwrites all my aliases and conflicts with the system mpi i installed myself, because it's fucking useless
                 # subprocess.run(['mpirun', '-np', ' 4', './f_iter', it.params_file], check=True)
                 subprocess.run(['./f_iter', it.params_file], check=True)
 
-        if os.path.isfile("{}/{}_counts.dat".format(path, file_prefix)):
-            hist = np.loadtxt("{}/{}_counts.dat".format(path, file_prefix))
+        if os.path.isfile("{}/{}counts.dat".format(path, file_prefix)):
+            hist = np.loadtxt("{}/{}counts.dat".format(path, file_prefix))
             xvals = hist[:, 0] + ((hist[0, 1] - hist[0, 0]) / 2.)
             histvals = hist[:, 2] + hist[:, 3]
             long_gauss = 1. / (pulse.sigma * np.sqrt(2. * np.pi)) * \
@@ -113,7 +118,7 @@ per trimer will also need to be changed.
         mt.close()
         bt.close()
         tt.close()
-        subprocess.run(['python', 'plot_tau.py', '{}'.format(path), '{:3.2f}'.format(args.rho_q)], check=True)
+        subprocess.run(['python', 'plot_tau.py', '{}'.format(path), '{:3.2f}'.format(args.rho_q), '{:3.2f}'.format(args.po_pq_ent)], check=True)
 
     end_time = time.monotonic()
     print("Total time elapsed: {}".format((end_time - start_time)))

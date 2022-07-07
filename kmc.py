@@ -39,6 +39,18 @@ class Rates():
         self.emissive       = emissive
         self.decay_on_pq    = decay_on_pq
         self.ann_on_pq      = ann_on_pq
+    def print(self):
+        print("Rates - all given in ps^{-1}:")
+        print("k_hop = {:6.4f}".format(self.hop))
+        print("g_pool = {:6.4f}".format(self.g_pool))
+        print("g_pq = {:6.4f}".format(self.g_pq))
+        print("g_q = {:6.4f}".format(self.g_q))
+        print("k_po_pq = {:6.4f}".format(self.k_po_pq))
+        print("k_pq_po = {:6.4f}".format(self.k_pq_po))
+        print("k_pq_q = {:6.4f}".format(self.k_pq_q))
+        print("k_q_pq = {:6.4f}".format(self.k_q_pq))
+        print("k_ann = {:6.4f}".format(self.k_ann))
+        print("emissive decays: {}".format(self.emissive))
 
 class Iteration():
     import numpy as np
@@ -51,7 +63,7 @@ class Iteration():
     emissive or not.
     '''
     def __init__(self, aggregate, model, pulse, rho_quenchers,
-            path, fluence, binwidth, max_count,
+            path, prefix, fluence, binwidth, max_count,
             verbose=False, draw_frames=False):
         if verbose:
             self.output = sys.stdout
@@ -64,7 +76,7 @@ class Iteration():
         self.rho_quenchers = rho_quenchers
         self.n_sites = len(self.aggregate.trimers)
         self.base_rates = self.rate_setup()
-        self.write_arrays(path, binwidth, max_count)
+        self.write_arrays(path, binwidth, max_count, prefix)
             
     def rate_setup(self):
         '''
@@ -108,10 +120,8 @@ class Iteration():
             self.base_rates[i] = t
         return self.base_rates
 
-    def write_arrays(self, path, binwidth, max_count):
-        prefix = "{:3.2f}_{:4.2E}".format(
-                self.rho_quenchers, self.fluence)
-        self.params_file = "{}/{}_params".format(path, prefix)
+    def write_arrays(self, path, binwidth, max_count, prefix):
+        self.params_file = "{}/{}params".format(path, prefix)
         neighbours_file = "{}/neighbours.dat".format(path)
         rates_file = "{}/base_rates.dat".format(path)
         np.savetxt(rates_file, self.base_rates.flatten())
@@ -137,3 +147,5 @@ class Iteration():
             f.write(rates_file)
             f.write("\n")
             f.write(neighbours_file)
+            f.write("\n")
+            f.write(prefix)

@@ -6,12 +6,14 @@ import matplotlib.pyplot as plt
 
 file_path = sys.argv[1]
 rho_q = sys.argv[2]
+po_pq_ent = sys.argv[3]
 # if os.path.isfile("out/lhcii_agg_mica.txt".format(file_path)):
 # exp = np.loadtxt("out/exp_lhcii_solution.dat")
 
 fig, ax1 = plt.subplots()
 n_exp = ["mono", "bi", "tri"]
-files = ["{}/{}_{}_tau.dat".format(file_path, rho_q, ex) for ex in n_exp]
+files = ["{}/{}_{}_{}_tau.dat".format(file_path, rho_q, po_pq_ent, ex) for ex in n_exp]
+fluences = []
 for i, f in enumerate(files):
     if os.path.isfile(f):
         l = np.loadtxt(f)
@@ -25,6 +27,12 @@ for i, f in enumerate(files):
         plt.errorbar(fluences, lm[:, 1]/1000., lm[:, 2]/1000.,
             label=r'$ \left< \tau_{\text{%s.}} \right> $' % n_exp[i],
             elinewidth=0.5, capsize=2.0, marker='o', ms=6.0, lw=3.0)
+
+if float(rho_q) > 0.0:
+    exp_data = np.loadtxt("out/lhcii_lipid_mica.dat")
+    plt.errorbar(exp_data[:, 0], exp_data[:, 1], exp_data[:, 2],
+            label='LHCII w/ lipid bilayer', color='k', lw=4.0,
+            elinewidth=0.5, capsize=2.0, marker='^', ms=10.0)
 
 plt.grid()
 plt.legend()

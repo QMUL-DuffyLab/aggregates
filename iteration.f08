@@ -162,6 +162,7 @@ program iteration
       read(20, '(a)') emissive_str
       read(20, '(a)') rates_file
       read(20, '(a)') neighbours_file
+      read(20, '(a)') prefix_long
       close(20)
 
       ! check which decays are emissive
@@ -189,7 +190,7 @@ program iteration
 
       i = scan(rates_file, "/\", .true.)
       file_path = rates_file(:i)
-      write(prefix_long, '(F4.2, a, ES8.2, a)') rho_q, "_", fluence, "_"
+      ! write(prefix_long, '(F4.2, a, ES8.2, a)') rho_q, "_", fluence, "_"
       prefix = trim(adjustl(prefix_long))
       write(*, *) "File path = ", file_path
       write(*, *) "Prefix = ", prefix

@@ -291,3 +291,36 @@ via e.g. "a{:1d}".format(n), then use parameter hints to add the lifetime via
 set_param_hint('tau', expr='a{:1d} * tau{:1d}'.format(n)).
 would have to add all the as and taus together though. can it do the derivative of this symbolically?
 '''
+# def tabulate(mono, bi, tri):
+#     from lmfit import Parameter
+#     '''take the results from each of the three fits and
+#     sort them all out a bit.
+#     how?
+#     we could use the parameter class from lmfit and make a dict of them.
+#     have tau/a_1 through 3, set them all to nan, then replace them all
+#     with the corresponding values from each fit.
+#     then do the same for the amplitude weighted lifetime (intensity weighted?)
+#     and report the one with the lowest error along with its components.
+#     '''
+#     params = [
+#             Parameter("tau_1", value=np.nan),
+#             Parameter("a_1", value=np.nan),
+#             Parameter("tau_2", value=np.nan),
+#             Parameter("a_2", value=np.nan),
+#             Parameter("tau_3", value=np.nan),
+#             Parameter("a_3", value=np.nan),
+#             Parameter("x0", value=np.nan),
+#             Parameter("y0", value=np.nan),
+#             ]
+#     err = np.inf
+#     min_err = 0
+#     for i, fit in enumerate([mono, bi, tri]):
+#         res = fit[0].best_values
+#         # get the one with the smallest error
+#         if fit[1][2] < err:
+#             err = fit[1][2]
+#             min_err = i
+#         # this doesn't work yet but should look something like this
+#         for key in res:
+#             if key in params:
+#                 params[key] = res[key]

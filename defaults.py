@@ -17,7 +17,7 @@ hop = 25. # hopping rate between trimers
 chl_decay = 3600. # decay of a chlorophyll
 car_decay = 10. # decay of the carotenoid
 ann = 50. # annihilation rate for excitons on same trimer
-pool_to_pq = 5.
+pool_to_pq = 1.
 pq_to_pool = 1.
 rates_dict = {
  'hop_only': Rates(hop, chl_decay, chl_decay, car_decay, np.inf, np.inf,

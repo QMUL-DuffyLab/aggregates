@@ -282,7 +282,7 @@ def plot_fits(m, b, t, histvals, xvals, key, filename):
     ax.set_xlabel("Time (ps)")
     ax.set_ylabel("Counts (norm.)")
     plt.title("Model = {}, fluence = {:4.2E}".format(key, fluence))
-    fig.savefig("{}_fits.pdf".format(filename))
+    fig.savefig("{}fits.pdf".format(filename))
 
 
 '''

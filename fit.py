@@ -287,60 +287,56 @@ def plot_fits(m, b, t, histvals, xvals, key, filename):
 
 def lifetimes(n, fit):
     strings = [[], [], []]
+    # define ai, taui for i = 1, n
     sympy.symbols('tau:{:d}, a:{:d}'.format(n, n))
+    # build up the expressions for ai, ai * taui, ai * taui^2
     for i in range(1, n + 1):
         strings[0].append('a{:d}'.format(i))
         strings[1].append('a{:d} * tau{:d}'.format(i, i))
         strings[2].append('a{:d} * tau{:d} * tau{:d}'.format(i, i, i))
+    # turn the lists of strings into the relevant sympy expressions
     joined = [' + '.join(s) for s in strings]
     tau = [sympy.sympify(j) for j in joined]
     tau_amp = tau[1] / tau[0]
     tau_int = tau[2] / tau[1]
     # now start on relating these expressions to the fitted parameters
-    # NB: all the subsequent code requires that y0 and x0 are listed last
-    # in the declaration of the fit function passed to lmfit! i.e. that
-    # they are parameters 0 -> 2*n - 1 in the list.
-    # now get the best values and the covariance
-    bv = fit.best_values
-    print(fit.params["a1"].stderr)
-    # sympy doesn't order the variables but lmfit does;
-    # we need lmfit's ordering to do error calculation
-    vn = fit.var_names
-    print(fit.var_names)
-
-    #print(tau_int.free_symbols)
-    #print(sympy.latex(tau[2]))
-    #print(sympy.diff(tau_int, a1))
-    j_amp = np.zeros((2 * n))
-    j_int = np.zeros((2 * n))
+    j_amp = np.zeros(len(fit.var_names))
+    j_int = np.zeros(len(fit.var_names))
     var = list(tau_int.free_symbols) # same for both amp and int
     # generate a list of tuples which tell sympy the values to substitute in
-    repl = [(var[i], bv[str(var[i])]) for i in range(len(var))]
+    repl = [(var[i], fit.best_values[str(var[i])]) for i in range(len(var))]
+    # we're gonna return a dict which we turn into a pandas dataframe
+    # then compare to find how many exponents gave the best fit
     d = {'n_exp': n}
-    for i in range(len(tau_amp.free_symbols)):
-        # for this index get the variable as a string
+    for i in range(len(var)):
+        # dict key and index comparison require string representation
         s = str(var[i])
+        # build up the dict as we go
         d[s] = fit.params[s].value
         d[s + '_err'] = fit.params[s].stderr
-        # and find out where in lmfit's ordering that variable is
+        '''
+        sympy doesn't order the variables ai, taui, but returns them as a set.
+        lmfit does order them; we need lmfit's ordering to get the error,
+        because we need to multiply with the covariance matrix correctly.
+        so: find out where in lmfit's ordering this variable is, then do the
+        derivative wrt this variable, sub in values, put the result at the
+        correct index `ind`.
+        note that this also leaves the indices corresponding to x0 and y0 = 0,
+        wherever they are in the list, so we don't need to worry about them.
+        '''
         ind = np.nonzero(np.array(fit.var_names) == s)[0][0]
-        print(s, fit.var_names[ind], fit.params[fit.var_names[ind]].value, fit.params[fit.var_names[ind]].stderr, ind)
-        # differentiate wrt this variable and put it in the correct row
-        # to multiply out with lmfit's covariance matrix afterwards
         j_amp[ind] = sympy.diff(tau_amp, var[i]).subs(repl)
         j_int[ind] = sympy.diff(tau_int, var[i]).subs(repl)
-        print(var[i], " = ", bv[str(var[i])], ", expr =", sympy.diff(tau_amp, var[i]), ", val = ", j_amp[ind])
 
-    sigma = fit.covar[:2*n, :2*n]
-    m_amp = np.matmul(j_amp, sigma)
-    print(sigma, m_amp)
-    m_int = np.matmul(j_int, sigma)
+    m_amp = np.matmul(j_amp, fit.covar)
+    m_int = np.matmul(j_int, fit.covar)
     tau_amp_err = np.sqrt(np.matmul(m_amp, j_amp.transpose()))
     tau_int_err = np.sqrt(np.matmul(m_int, j_int.transpose()))
     d['tau_amp'] = tau_amp.subs(repl)
     d['tau_amp_err'] = tau_amp_err
     d['tau_int'] = tau_int.subs(repl)
     d['tau_int_err'] = tau_int_err
+    print("n_exp = {:d}".format(n))
     print("tau_amp = {} +/- {} ps".format(tau_amp.subs(repl), tau_amp_err))
     print("tau_int = {} +/- {} ps".format(tau_int.subs(repl), tau_int_err))
     return d

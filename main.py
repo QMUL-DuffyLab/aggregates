@@ -3,6 +3,7 @@
 import sys, os, time
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 import subprocess
 import argparse
 from lmfit import Model
@@ -54,8 +55,13 @@ per trimer will also need to be changed.
             help="Pass to disable running the code and just re-fit the data")
     parser.add_argument('--files_only', action=argparse.BooleanOptionalAction,
             help="Pass to disable the running and the fits and just generate input files")
+    parser.add_argument('--detergent', action=argparse.BooleanOptionalAction,
+            help="Run for detergent case")
 
     args = parser.parse_args()
+    if args.detergent:
+        args.model = "hop_only"
+        args.rho_q = 0.0
     print(args)
     # annihilation, pool decay, pq decay, q decay
     path = "out/{}/{}".format(args.model, args.lattice)
@@ -69,7 +75,8 @@ per trimer will also need to be changed.
         bt = open("{}/{:3.2f}_{:3.2f}_bi_tau.dat".format(path, args.rho_q, args.po_pq_ent), "w")
         tt = open("{}/{:3.2f}_{:3.2f}_tri_tau.dat".format(path, args.rho_q, args.po_pq_ent), "w")
         # st = open("{}/{:3.2f}_tau_min_error.dat".format(path, args.rho_q), "w")
-    for fluence in args.fluences:
+    fluences = defaults.fluences
+    for fluence in fluences:
         print("Fluence = {:4.2E}".format(
             fluence))
         os.makedirs(path, exist_ok=True)
@@ -81,8 +88,12 @@ per trimer will also need to be changed.
             verbose = False
             # note - second parameter here is the nn cutoff. set to 0 to
             # disable excitation hopping between trimers
-            agg = theoretical_aggregate(args.protein_radius,
-                    2.01 * args.protein_radius, args.lattice, args.n_trimers)
+            if args.detergent:
+                agg = theoretical_aggregate(args.protein_radius,
+                        0. * args.protein_radius, args.lattice, args.n_trimers)
+            else:
+                agg = theoretical_aggregate(args.protein_radius,
+                        2.01 * args.protein_radius, args.lattice, args.n_trimers)
             it = Iteration(agg, rates, pulse, args.rho_q,
                     path, file_prefix, fluence, args.binwidth, args.max_count,
                     verbose=verbose)
@@ -98,27 +109,48 @@ per trimer will also need to be changed.
             long_gauss = 1. / (pulse.sigma * np.sqrt(2. * np.pi)) * \
                 np.exp(- (xvals - pulse.mu)**2 \
                 / (np.sqrt(2.) * pulse.sigma)**2)
+            long_gauss = long_gauss - np.min(long_gauss)
             long_gauss = long_gauss/np.max(long_gauss)
             histvals = histvals / np.max(histvals)
+            tau_init = [1./rates.g_pool, 1./rates.k_ann, 500.]
             mono_tau = fit.monofit(histvals, rates, xvals,
-                long_gauss, fluence, path, file_prefix)
+                long_gauss, fluence, path, file_prefix, tau_init)
             bi_tau = fit.bifit(histvals, rates, xvals,
-                long_gauss, fluence, path, file_prefix)
+                long_gauss, fluence, path, file_prefix, tau_init)
             tri_tau = fit.trifit(histvals, rates, xvals,
-                long_gauss, fluence, path, file_prefix)
+                long_gauss, fluence, path, file_prefix, tau_init)
+            if mono_tau[0] is not None:
+                mono_d = fit.lifetimes(1, mono_tau[0])
+                mono_d["tau_init"] = tau_init
+            else:
+                mono_d = {}
+            if bi_tau[0] is not None:
+                bi_d = fit.lifetimes(2, bi_tau[0])
+                bi_d["tau_init"] = tau_init
+            else:
+                bi_d = {}
+            if tri_tau[0] is not None:
+                tri_d = fit.lifetimes(3, tri_tau[0])
+                tri_d["tau_init"] = tau_init
+            else:
+                tri_d = {}
+            df = pd.DataFrame([mono_d, bi_d, tri_d])
+            df.to_csv("{}/{}fit_info.csv".format(path, file_prefix))
+
             # horrible way of doing this. but allows us to look at
             # partially finished runs
             np.savetxt(mt, np.array(mono_tau[1]).reshape(1, 3))
             np.savetxt(bt, np.array(bi_tau[1]).reshape(1, 3))
             np.savetxt(tt, np.array(tri_tau[1]).reshape(1, 3))
             fit.plot_fits(mono_tau, bi_tau, tri_tau, histvals,
-                    xvals, args.model, "{}/{}".format(path, file_prefix))
-
+                xvals, args.model, "{}/{}".format(path, file_prefix))
     if not args.files_only:
         mt.close()
         bt.close()
         tt.close()
-        subprocess.run(['python', 'plot_tau.py', '{}'.format(path), '{:3.2f}'.format(args.rho_q), '{:3.2f}'.format(args.po_pq_ent)], check=True)
 
+    subprocess.run(['python', 'plot_tau.py', '{}'.format(path),
+        '{:3.2f}'.format(args.rho_q),
+        '{:3.2f}'.format(args.po_pq_ent)], check=True)
     end_time = time.monotonic()
     print("Total time elapsed: {}".format((end_time - start_time)))

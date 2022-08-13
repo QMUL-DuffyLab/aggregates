@@ -4,19 +4,24 @@ from kmc import Rates
 protein_r = 5. # radius of a protein - only relevant for packing of real aggregates
 n_trimers = 200 # (approximate) number of trimers to place in lattice
 max_count = 10000 # maximum count to reach in histogram
-binwidth = 25. # histogram bin width
+#binwidth = 25. # histogram bin width
+binwidth = 50. # histogram bin width
 
 # pulse stuff
-fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
-        1.9E14, 3.22E14, 6.12E14, 9.48E14]
-pulse_fwhm = 50. # fwhm of pulse in ps
-pulse_mu = 100. # peak time of pulse in ps
+# fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
+#         1.9E14, 3.22E14, 6.12E14, 9.48E14]
+fluences = [9.48E14, 6.12E14, 3.22E14, 1.9E14, 1.31E14,
+        6.24E13, 3.03E13, 6.07E12]
+#pulse_fwhm = 50. # fwhm of pulse in ps
+pulse_fwhm = 2.335 * 60. # fwhm of pulse in ps
+#pulse_mu = 100. # peak time of pulse in ps
+pulse_mu = 275. # peak time of pulse in ps
 
 # rate stuff
 hop = 25. # hopping rate between trimers
 chl_decay = 3600. # decay of a chlorophyll
 car_decay = 10. # decay of the carotenoid
-ann = 50. # annihilation rate for excitons on same trimer
+ann = 100. # annihilation rate for excitons on same trimer
 pool_to_pq = 1.
 pq_to_pool = 1.
 rates_dict = {

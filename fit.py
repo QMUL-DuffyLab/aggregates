@@ -133,10 +133,11 @@ def tri_error(fit):
     error = np.sqrt(np.matmul(m, j.transpose()))
     return error
 
-def monofit(histvals, rates, xvals, irf, fluence, path, file_prefix):
+def monofit(histvals, rates, xvals, irf, fluence,
+        path, file_prefix, tau_init):
     weights = 1/np.sqrt(histvals + 1)
     mod = Model(monoexprisemodel, independent_vars=('x', 'irf'))
-    pars = mod.make_params(tau_1 = 1./rates.g_pool,
+    pars = mod.make_params(tau_1 = tau_init[0],
             a_1 = 1., y0 = 0., x0 = 0)
     pars['x0'].vary = True
     pars['y0'].vary = True
@@ -175,11 +176,12 @@ def monofit(histvals, rates, xvals, irf, fluence, path, file_prefix):
         result = None
     return (result, [fluence, lifetime, error])
 
-def bifit(histvals, rates, xvals, irf, fluence, path, file_prefix):
+def bifit(histvals, rates, xvals, irf, fluence,
+        path, file_prefix, tau_init):
     weights = 1/np.sqrt(histvals + 1)
     mod = Model(biexprisemodel, independent_vars=('x', 'irf'))
-    pars = mod.make_params(tau_1 = 1./rates.k_ann, a_1 = 1.,
-            tau_2 = 1./rates.g_pool, a_2 = 1., y0 = 0., x0 = 0)
+    pars = mod.make_params(tau_1 = tau_init[0], a_1 = 1./2.,
+            tau_2 = tau_init[1], a_2 = 1./2., y0 = 0., x0 = 0)
     pars['x0'].vary = True
     pars['y0'].vary = True
     try:
@@ -218,12 +220,13 @@ def bifit(histvals, rates, xvals, irf, fluence, path, file_prefix):
         result = None
     return (result, [fluence, lifetime, error])
 
-def trifit(histvals, rates, xvals, irf, fluence, path, file_prefix):
+def trifit(histvals, rates, xvals, irf, fluence,
+        path, file_prefix, tau_init):
     weights = 1/np.sqrt(histvals + 1)
     mod = Model(triexprisemodel, independent_vars=('x', 'irf'))
-    pars = mod.make_params(tau_1 = 1./rates.k_ann, a_1 = 1.,
-            tau_2 = 1./rates.g_pool, a_2 = 1.,
-            tau_3=500., a_3 = 1., y0 = 0., x0 = 0)
+    pars = mod.make_params(tau_1 = tau_init[0], a_1 = 1./3.,
+            tau_2 = tau_init[1], a_2 = 1./3.,
+            tau_3=tau_init[2], a_3 = 1./3., y0 = 0., x0 = 0)
     pars['x0'].vary = True
     pars['y0'].vary = True
     try:
@@ -288,21 +291,22 @@ def plot_fits(m, b, t, histvals, xvals, key, filename):
 def lifetimes(n, fit):
     strings = [[], [], []]
     # define ai, taui for i = 1, n
-    sympy.symbols('tau:{:d}, a:{:d}'.format(n, n))
+    sympy.symbols('tau_:{:d}, a_:{:d}'.format(n, n))
     # build up the expressions for ai, ai * taui, ai * taui^2
     for i in range(1, n + 1):
-        strings[0].append('a{:d}'.format(i))
-        strings[1].append('a{:d} * tau{:d}'.format(i, i))
-        strings[2].append('a{:d} * tau{:d} * tau{:d}'.format(i, i, i))
+        for j in range(3):
+            strings[j].append('a_{:d} * tau_{:d}**{:d}'.format(i, i, j))
     # turn the lists of strings into the relevant sympy expressions
     joined = [' + '.join(s) for s in strings]
-    tau = [sympy.sympify(j) for j in joined]
-    tau_amp = tau[1] / tau[0]
-    tau_int = tau[2] / tau[1]
+    tau = [sympy.sympify(j, evaluate=False) for j in joined]
+    tau_amp = sympy.UnevaluatedExpr(tau[1]) / sympy.UnevaluatedExpr(tau[0])
+    tau_int = sympy.UnevaluatedExpr(tau[2]) / sympy.UnevaluatedExpr(tau[1])
     # now start on relating these expressions to the fitted parameters
     j_amp = np.zeros(len(fit.var_names))
     j_int = np.zeros(len(fit.var_names))
     var = list(tau_int.free_symbols) # same for both amp and int
+    tau_amp = tau_amp.doit()
+    tau_int = tau_int.doit()
     # generate a list of tuples which tell sympy the values to substitute in
     repl = [(var[i], fit.best_values[str(var[i])]) for i in range(len(var))]
     # we're gonna return a dict which we turn into a pandas dataframe

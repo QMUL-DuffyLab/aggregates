@@ -25,6 +25,8 @@ ann = 100. # annihilation rate for excitons on same trimer
 pool_to_pq = 1.
 pq_to_pool = 1.
 rates_dict = {
+ 'detergent': Rates(np.inf, chl_decay, chl_decay, car_decay, np.inf, np.inf,
+     np.inf, np.inf, ann, [False, True, True, False], True, True),
  'hop_only': Rates(hop, chl_decay, chl_decay, car_decay, np.inf, np.inf,
      np.inf, np.inf, ann, [False, True, True, False], True, True),
  'irrev': Rates(hop, chl_decay, chl_decay, car_decay, # car-eet

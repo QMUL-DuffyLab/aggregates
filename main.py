@@ -26,7 +26,7 @@ if __name__ == "__main__":
             choices=[*defaults.rates_dict],
             help='''
 Quenching model to use. Options are:
-'hop_only', 'irrev', 'rev', 'fast_irrev', 'slow', 'exciton'.
+'detergent', 'hop_only', 'irrev', 'rev', 'fast_irrev', 'slow', 'exciton'.
 See defaults.py for specific numbers''')
     # optional arguments
     parser.add_argument('-pqe', '--po_pq_ent', type=float, required=False, default=defaults.pool_to_pq,

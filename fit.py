@@ -133,7 +133,7 @@ def tri_error(fit):
     error = np.sqrt(np.matmul(m, j.transpose()))
     return error
 
-def monofit(histvals, rates, xvals, irf, fluence,
+def monofit(histvals, rates, xvals, irf, n_per_t,
         path, file_prefix, tau_init):
     weights = 1/np.sqrt(histvals + 1)
     mod = Model(monoexprisemodel, independent_vars=('x', 'irf'))
@@ -174,9 +174,9 @@ def monofit(histvals, rates, xvals, irf, fluence,
         lifetime = np.nan
         error = np.nan
         result = None
-    return (result, [fluence, lifetime, error])
+    return (result, [n_per_t, lifetime, error])
 
-def bifit(histvals, rates, xvals, irf, fluence,
+def bifit(histvals, rates, xvals, irf, n_per_t,
         path, file_prefix, tau_init):
     weights = 1/np.sqrt(histvals + 1)
     mod = Model(biexprisemodel, independent_vars=('x', 'irf'))
@@ -218,9 +218,9 @@ def bifit(histvals, rates, xvals, irf, fluence,
         lifetime = np.nan
         error = np.nan
         result = None
-    return (result, [fluence, lifetime, error])
+    return (result, [n_per_t, lifetime, error])
 
-def trifit(histvals, rates, xvals, irf, fluence,
+def trifit(histvals, rates, xvals, irf, n_per_t,
         path, file_prefix, tau_init):
     weights = 1/np.sqrt(histvals + 1)
     mod = Model(triexprisemodel, independent_vars=('x', 'irf'))
@@ -265,27 +265,27 @@ def trifit(histvals, rates, xvals, irf, fluence,
         lifetime = np.nan
         error = np.nan
         result = None
-    return (result, [fluence, lifetime, error])
+    return (result, [n_per_t, lifetime, error])
 
 def plot_fits(m, b, t, histvals, xvals, key, filename):
     fig, ax = plt.subplots()
     plt.semilogy(xvals, histvals, lw=2.0, color='k', marker='o', fillstyle='none', label="Counts")
-    fluence = 0.
+    n_per_t = 0.
     if m[0] is not None:
         plt.semilogy(xvals, m[0].best_fit, label=r'Mono: $ \tau = $' + '{:4.2f}'.format(m[1][1]) + r'$ \pm $' + '{:4.2f}'.format(m[1][2]))
-        fluence = m[1][0]
+        n_per_t = m[1][0]
     if b[0] is not None:
         plt.semilogy(xvals, b[0].best_fit, label=r'Bi: $ \tau = $' + '{:4.2f}'.format(b[1][1]) + r'$ \pm $' + '{:4.2f}'.format(b[1][2]))
-        fluence = b[1][0]
+        n_per_t = b[1][0]
     if t[0] is not None:
         plt.semilogy(xvals, t[0].best_fit, label=r'Tri: $ \tau = $' + '{:4.2f}'.format(t[1][1]) + r'$ \pm $' + '{:4.2f}'.format(t[1][2]))
-        fluence = t[1][0]
+        n_per_t = t[1][0]
 
     plt.legend(prop={'size': 16})
     ax.set_xlim([0., 2000.])
     ax.set_xlabel("Time (ps)")
     ax.set_ylabel("Counts (norm.)")
-    plt.title("Model = {}, fluence = {:4.2E}".format(key, fluence))
+    plt.title("Model = {}, n per trimer = {:4.2E}".format(key, n_per_t))
     fig.savefig("{}fits.pdf".format(filename))
 
 def lifetimes(n, fit):

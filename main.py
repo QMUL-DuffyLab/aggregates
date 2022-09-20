@@ -77,11 +77,10 @@ per trimer will also need to be changed.
         # st = open("{}/{:3.2f}_tau_min_error.dat".format(path, args.rho_q), "w")
     fluences = defaults.fluences
     for fluence in fluences:
-        print("Fluence = {:4.2E}".format(
-            fluence))
+        n_per_t = defaults.xsec_485nm * fluence
         os.makedirs(path, exist_ok=True)
         file_prefix = "{:3.2f}_{:4.2E}_{:3.2f}_".format(
-                args.rho_q, fluence, args.po_pq_ent)
+                args.rho_q, n_per_t, args.po_pq_ent)
         print("Prefix = {}".format(file_prefix))
 
         if not args.fit_only:
@@ -95,7 +94,7 @@ per trimer will also need to be changed.
                 agg = theoretical_aggregate(args.protein_radius,
                         2.01 * args.protein_radius, args.lattice, args.n_trimers)
             it = Iteration(agg, rates, pulse, args.rho_q,
-                    path, file_prefix, fluence, args.binwidth, args.max_count,
+                    path, file_prefix, n_per_t, args.binwidth, args.max_count,
                     verbose=verbose)
             if not args.files_only:
                 # this doesn't work because anaconda overwrites all my aliases and conflicts with the system mpi i installed myself, because it's fucking useless
@@ -114,11 +113,11 @@ per trimer will also need to be changed.
             histvals = histvals / np.max(histvals)
             tau_init = [1./rates.g_pool, 1./rates.k_ann, 500.]
             mono_tau = fit.monofit(histvals, rates, xvals,
-                long_gauss, fluence, path, file_prefix, tau_init)
+                long_gauss, n_per_t, path, file_prefix, tau_init)
             bi_tau = fit.bifit(histvals, rates, xvals,
-                long_gauss, fluence, path, file_prefix, tau_init)
+                long_gauss, n_per_t, path, file_prefix, tau_init)
             tri_tau = fit.trifit(histvals, rates, xvals,
-                long_gauss, fluence, path, file_prefix, tau_init)
+                long_gauss, n_per_t, path, file_prefix, tau_init)
             if mono_tau[0] is not None:
                 mono_d = fit.lifetimes(1, mono_tau[0])
                 mono_d["tau_init"] = tau_init

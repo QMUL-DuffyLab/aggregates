@@ -63,7 +63,7 @@ class Iteration():
     emissive or not.
     '''
     def __init__(self, aggregate, model, pulse, rho_quenchers,
-            path, prefix, fluence, binwidth, max_count,
+            path, prefix, n_per_t, binwidth, max_count,
             verbose=False, draw_frames=False):
         if verbose:
             self.output = sys.stdout
@@ -72,7 +72,7 @@ class Iteration():
         self.aggregate = aggregate
         self.model = model
         self.pulse = pulse
-        self.fluence = fluence
+        self.n_per_t = n_per_t
         self.rho_quenchers = rho_quenchers
         self.n_sites = len(self.aggregate.trimers)
         self.base_rates = self.rate_setup()
@@ -89,34 +89,35 @@ class Iteration():
         and quenching states - we assume these states are connected to
         certain trimers at random, but that they are identical for each
         '''
-        self.max_neighbours = np.max(np.fromiter((len(x.get_neighbours()) 
+        self.max_neighbours = np.max(np.fromiter((len(x.get_neighbours())
                      for x in self.aggregate.trimers), int))
-        self.base_rates = np.zeros((self.n_sites + 2, self.max_neighbours + 5),\
+        self.base_rates = np.zeros((self.n_sites + 2, self.max_neighbours + 6),\
                 dtype=float)
         for i in range(self.n_sites + 2):
             t = self.base_rates[i].copy()
             # first element is generation
+            # second is stimulated emission
             if i < self.n_sites:
                 # trimer (pool)
                 n_neigh = len(self.aggregate.trimers[i].get_neighbours())
                 for j in range(n_neigh):
-                    t[self.max_neighbours - j] = self.model.hop
-                t[self.max_neighbours + 2] = self.model.k_po_pq
-                t[self.max_neighbours + 3] = self.model.g_pool
-                t[self.max_neighbours + 4] = self.model.k_ann
+                    t[self.max_neighbours - (j - 1)] = self.model.hop
+                t[self.max_neighbours + 3] = self.model.k_po_pq
+                t[self.max_neighbours + 4] = self.model.g_pool
+                t[self.max_neighbours + 5] = self.model.k_ann
             elif i == self.n_sites:
                 if (self.rho_quenchers != 0):
                     # pre-quencher
-                    t[self.max_neighbours + 1] = self.model.k_pq_po
-                    t[self.max_neighbours + 2] = self.model.k_pq_q
-                    t[self.max_neighbours + 3] = self.model.g_pq
-                    t[self.max_neighbours + 4] = self.model.k_ann
+                    t[self.max_neighbours + 2] = self.model.k_pq_po
+                    t[self.max_neighbours + 3] = self.model.k_pq_q
+                    t[self.max_neighbours + 4] = self.model.g_pq
+                    t[self.max_neighbours + 5] = self.model.k_ann
             elif i == self.n_sites + 1:
                 # quencher
                 if (self.rho_quenchers != 0):
-                    t[self.max_neighbours + 2] = self.model.k_q_pq
-                    t[self.max_neighbours + 3] = self.model.g_q
-                    t[self.max_neighbours + 4] = self.model.k_ann
+                    t[self.max_neighbours + 3] = self.model.k_q_pq
+                    t[self.max_neighbours + 4] = self.model.g_q
+                    t[self.max_neighbours + 5] = self.model.k_ann
             self.base_rates[i] = t
         return self.base_rates
 
@@ -136,7 +137,7 @@ class Iteration():
             f.write("{:d}\n".format(self.n_sites))
             f.write("{:d}\n".format(self.max_neighbours))
             f.write("{:f}\n".format(self.rho_quenchers))
-            f.write("{:f}\n".format(self.fluence))
+            f.write("{:f}\n".format(self.n_per_t))
             f.write("{:f}\n".format(self.pulse.mu))
             f.write("{:f}\n".format(self.pulse.fwhm))
             f.write("{:f}\n".format(binwidth))

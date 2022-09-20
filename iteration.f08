@@ -15,14 +15,14 @@ program iteration
   logical(c_bool) :: emissive(4)
   integer(ip) :: i, j, k, n_sites, max_neighbours, rate_size, n_current,&
     seed_size, max_count, curr_max_count, n_quenchers, mpierr, rank,&
-    num_procs
+    num_procs, n_abs, n_se, n_d, n_a
   integer(ip), dimension(1) :: maxloc_temp_index
   integer(ip), dimension(4) :: curr_counts
   integer(ip), dimension(4, 1) :: curr_locs
   integer(ip), dimension(:), allocatable :: n_i, n_pq, n_q, quenchers, seed
   integer(ip), dimension(:), allocatable :: neighbours_temp
   integer(ip), dimension(:, :), allocatable :: neighbours, counts
-  real(dp) :: mu, fluence, t, dt, t_pulse, rho_q, xsec,&
+  real(dp) :: mu, n_per_t, t, dt, t_pulse, rho_q, xsec,&
     sigma, fwhm, start_time, end_time, binwidth, max_time
   real(dp), dimension(:), allocatable :: rates, base_rates, pulse,&
     bins
@@ -48,15 +48,17 @@ program iteration
   end if
 
   dt = 1.0_dp
-  xsec = 1.1E-14
-  pulse = construct_pulse(mu, fwhm, dt, fluence,&
-        xsec, n_sites)
+  pulse = construct_pulse(mu, fwhm, dt, n_per_t, n_sites)
   ! base_rates(1) is where a generation rate will go
   ! base_rates(2) is a hopping rate
   ds = entropic_penalties(base_rates(2))
 
   i = 0
   curr_max_count = 0
+  n_abs = 0
+  n_se = 0
+  n_d = 0
+  n_a = 0
   ! keep iterating till we get a decent number of counts
   ! pool decays and pre-quencher decays are emissive, so
   ! those are what we're concerned with for the fit
@@ -116,6 +118,10 @@ program iteration
   end do
   write(*, *) "Process ", rank, " has max count ",&
     curr_max_count
+  write (*, *) "n_abs = ", n_abs
+  write (*, *) "n_se  = ", n_se
+  write (*, *) "n_d   = ", n_d
+  write (*, *) "n_a   = ", n_a
 
   ! write(*, *) "]."
   call MPI_Barrier(MPI_COMM_WORLD, mpierr)
@@ -154,7 +160,7 @@ program iteration
       read(20, *) n_sites
       read(20, *) max_neighbours
       read(20, *) rho_q
-      read(20, *) fluence
+      read(20, *) n_per_t
       read(20, *) mu
       read(20, *) fwhm
       read(20, *) binwidth
@@ -176,11 +182,11 @@ program iteration
       ! principle this could be reduced by one, but then we'd have to check
       ! that max_neighbours is > 0 and put the extra pq rate in the middle
       ! somewhere, and that seems pointless just to save a few bytes
-      rate_size = max_neighbours + 5
+      rate_size = max_neighbours + 6
       write(*, '(a, I4)')     "n_sites    = ", n_sites
       write(*, '(a, I1)')     "max neigh  = ", max_neighbours
       write(*, '(a, F8.3)')   "rho_q      = ", rho_q
-      write(*, '(a, ES10.3)') "fluence    = ", fluence
+      write(*, '(a, ES10.3)') "n_per_t    = ", n_per_t
       write(*, '(a, F8.3)')   "mu         = ", mu
       write(*, '(a, F8.3)')   "fwhm       = ", fwhm
       write(*, '(a, F8.3)')   "binwidth   = ", binwidth
@@ -277,17 +283,17 @@ program iteration
       end do
     end function entropic_penalties
 
-    function construct_pulse(mu, fwhm, dt, fluence,&
-        xsec, n_sites) result(pulse)
+    function construct_pulse(mu, fwhm, dt, n_per_t,&
+        n_sites) result(pulse)
       implicit none
-      real(dp) :: mu, fwhm, dt, sigma, tmax, fluence, xsec
+      real(dp) :: mu, fwhm, dt, sigma, tmax, n_per_t
       real(dp), dimension(:), allocatable :: pulse
       integer :: i, n_sites
       tmax = 2.0_dp * mu
       allocate(pulse(int(tmax / dt)))
       sigma = fwhm / (2.0_dp * (sqrt(2.0_dp * log(2.0_dp))))
       do i = 1, int(tmax / dt)
-        pulse(i) = (xsec * fluence) / (sigma * sqrt(2.0_dp * pi)) * &
+        pulse(i) = (n_per_t) / (sigma * sqrt(2.0_dp * pi)) * &
           exp(-1.0_dp * ((i * dt) - mu)**2 / (sqrt(2.0_dp) * sigma)**2)
       end do
     end function construct_pulse
@@ -362,23 +368,23 @@ program iteration
         n = n_i(ind)
       end if
       rates = base_rates(start:end_)
-      ! sigma_ratio = 1.5_dp
-      ! n_pigments = 24.0_dp
       if (t < size(pulse) * dt) then
         ! no generation on a quencher
         if ((rate_type.eq."POOL").or.&
           ((rate_type.eq."PQ").and.(n.lt.1))) then
           ft = pulse(int(t / dt) + 1)
-          ! hardcode sigma_ratio = 1.5, n_pigments = 24 for speed
-          ! cross-section stuff taken care of at start
-          if (((2.5_dp) * n).le.24.0_dp) then
-            ! rates(1) = ft * &
-            !   ((n_pigments - (1 + sigma_ratio) * n)/ n_pigments)
-            rates(1) = ft * (1 - 0.10416666 * n)
-          end if
+          ! ft = \sigma_eff * J(t) (done in pulse construction above)
+          ! N' = 24.0_dp to start - could also be 42 (all chls) or
+          ! 54 (all pigments including carotenoids)
+          ! and we assume \sigma_SE = \sigma (thanks Einstein)
+          ! absorption first: k_abs = (ft / N') * (N - n)
+          rates(1) = (ft / 24.0_dp) * (24.0_dp - n)
+          ! now stimulated emission: k_SE = (ft / N') * n
+          rates(2) = (ft / 24.0_dp) * n
         end if
       else
         rates(1) = 0.0_dp
+        rates(2) = 0.0_dp
       end if
       ! max population on pq/q should be 1
       ! only applies if this site's a quencher anyway,
@@ -390,12 +396,12 @@ program iteration
             rates(rate_size - 2) = 0.0_dp
         end if
       end if
-      do k = 2, rate_size - 1
+      do k = 3, rate_size - 1
         rates(k) = rates(k) * n
         if (k.lt.(rate_size - 3)) then
           ! entropic factor due to populations
           ! on this trimer and its neighbours
-          rates(k) = rates(k) * ds(n, n_i(neighbours(ind, k - 1)))
+          rates(k) = rates(k) * ds(n, n_i(neighbours(ind, k - 2)))
         end if
       end do
       ! they should be able to annihilate with
@@ -420,7 +426,12 @@ program iteration
           ! generation
           n_i(ind)  = n_i(ind)  + 1
           n_current = n_current + 1
-        else if ((process.gt.1).and.(process.lt.(rate_size - 3))) then
+        else if (process.eq.2) then
+          ! stimulated emission
+          n_i(ind)  = n_i(ind)  - 1
+          n_current = n_current - 1
+          ! pop_loss(2) = .true.
+        else if ((process.gt.2).and.(process.lt.(rate_size - 3))) then
           ! hop to neighbour. -1 because of the generation rate
           nn = neighbours(ind, process - 1)
           n_i(ind) = n_i(ind) - 1
@@ -464,6 +475,11 @@ program iteration
           ! generation
           n_pq(ind) = n_pq(ind) + 1
           n_current = n_current + 1
+        else if (process.eq.2) then
+          ! stimulated emission
+          n_pq(ind) = n_pq(ind) - 1
+          n_current = n_current - 1
+          ! pop_loss(3) = .true.
         else if (process.eq.(rate_size - 3)) then
           ! hop back to pool trimer
           n_pq(ind) = n_pq(ind) - 1
@@ -492,11 +508,12 @@ program iteration
         end if
       else if (trim(rate_type).eq."Q") then
         ! quencher
-        if (process.eq.0) then
-          ! generation
-          n_q(ind)  = n_q(ind)  + 1
-          n_current = n_current + 1
-        else if (process.eq.(rate_size - 2)) then
+        ! assume for now that it can't absorb / emit
+        ! if (process.eq.1) then
+        !   ! generation
+        !   n_q(ind)  = n_q(ind)  + 1
+        !   n_current = n_current + 1
+        if (process.eq.(rate_size - 2)) then
           ! hop back to pre-quencher
           n_q(ind)  = n_q(ind)  - 1
           n_pq(ind) = n_pq(ind) + 1

@@ -1,5 +1,6 @@
 # 22/08/22 - new fitting plan
 import numpy as np
+import os
 import sympy
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
@@ -11,8 +12,7 @@ def Convol(x, h):
     return np.real(np.fft.ifft(X * H))
 
 def exp_model(x, *args):
-    # args should be given as y0, x0, a_1, ..., a_n, tau_1, ..., tau_n
-    print("exp_model: args = ", args)
+    # args should be given as a_1, ..., a_n, tau_1, ..., tau_n
     if (len(args) % 2 != 0):
         print("exp_model: number of args should be even - y0, x0, a_i, tau_i")
         return np.full(x.size, np.nan)
@@ -22,30 +22,30 @@ def exp_model(x, *args):
     y = np.zeros(x.size)
     n_exp = (len(args)) // 2
     for i in range(n_exp):
-        y += args[i] * np.exp(-x / float(args[i + 1 + (n_exp // 2)]))
+        y += args[i] * np.exp(-x / float(args[i + (n_exp)]))
     return y
 
-def reconv_model(X, irf_shift, a, t):
-    # args should be given as y0, x0, a_1, ..., a_n, tau_1, ..., tau_n
-    x, irf, bf = X
-    #if (len(args) % 2 != 0):
-    #    print("reconv_model: number of args should be even - pairs of a_i, tau_i then y0, x0")
-    #    return np.full(x.size, np.nan)
-    #if (len(args) == 0):
-    #    print("reconv_model: 0 arguments given - ???")
-    #    return np.full(x.size, np.nan)
+def reconv(X, *args):
+    # args should be a_i, irf_shift
+    x, irf, taus = X
     ymodel = np.zeros(x.size)
-    #t = x
-    c = irf_shift
-    #n = len(irf)
-    irf_s11 = (1 - c + np.floor(c)) * np.roll(irf, int(np.floor(c)))
-    irf_s22 = (c - np.floor(c)) * np.roll(irf, int(np.ceil(c)))
-    irf_s = irf_s11 + irf_s22
-    irf_reshaped_norm=irf_s/sum(irf_s)
-    # NB: need to figure out what exactly the difference is between the four lines above and this (from lifefit)
-    #irf_shifted = (1 - irf_shift + np.floor(irf_shift)) * irf[np.fmod(np.fmod(channel - np.floor(irf_shift) - 1, n) + n, n).astype(int)] 
-    #+ (irf_shift - np.floor(irf_shift)) * irf[np.fmod(np.fmod(channel - np.ceil(irf_shift) - 1, n) + n, n).astype(int)]
-    ymodel = bf + (a * np.exp(-x / t)) 
+    irf_interp = np.interp(x, x - args[-1], irf)
+    irf_reshaped_norm = irf_interp / np.sum(irf_interp)
+    for i in range(len(args) - 1):
+        ymodel += (args[i] * np.exp(-(x) / taus[i]))
+    z=Convol(ymodel,irf_reshaped_norm)
+    return z
+
+def reconv_plus(X, *args):
+    # args are a_i, a_extra, tau_extra, irf_shift
+    x, irf, taus = X
+    ymodel = np.zeros(x.size)
+    irf_interp = np.interp(x, x - args[-1], irf)
+    irf_reshaped_norm = irf_interp / np.sum(irf_interp)
+    for i in range(len(args - 3)):
+        ymodel += (args[i] * np.exp(-x / taus[i])) 
+    # now add the extra one
+    ymodel += args[-3] * np.exp(-x / args[-2])
     z=Convol(ymodel,irf_reshaped_norm)
     return z
 
@@ -111,173 +111,229 @@ def lifetimes(n, names, bv, err, covar):
     print("tau_int = {} +/- {} ps".format(tau_int.subs(repl), tau_int_err))
     return d
 
-def fit(func, init, x, ydata, bounds):
+def do_fit(filename, tau_init, irf_file=None,
+        exp=False, pw=0.25, pm=0.4, time_unit="ns"):
+    path = os.path.dirname(filename)
+    (fluence, ext) = os.path.splitext(os.path.basename(filename))
+    
     '''
-    overall wrapper function. given a number n and a set of initial guesses
-    for the time constants of the exponentials, this function generates the
-    array p0 to pass to curve_fit, the ordered list of names which we use to
-    calculate lifetimes later, then runs curve_fit, plots the result, calls
-    the lifetime function to get amplitude- and intensity-weighted lifetimes,
-    then returns a dictionary of the parameters and their errors along with
-    popt from curve_fit, so we can plot all the fits together.
+    import the decay data. 
+    if it's experimental it should be a two-column file with the first column
+    being the time and the second either being counts or "normalised" counts.
+    otherwise it's the histogram output by the fortran code: time, ann, pool, pq, q
     '''
-    n = len(init)
-    a = 1. / n
-    p0 = []
-    names = []
-    names.append("y0")
-    names.append("x0")
-    p0.append(0.) # y0
-    p0.append(0.) # x0
-    for i in range(n):
-        names.append("a{:d}".format(i + 1))
-        p0.append(a)
-    for i in range(n):
-        names.append("tau{:d}".format(i + 1))
-        p0.append(init[i])
-    sigma = np.zeros_like(ydata)
-    c = np.max(ydata)
-    for i in range(len(ydata)):
-        c_err = ((1/(np.sqrt(c))) / c)**2
-        b_err = ((1/np.sqrt(ydata[i]))/ydata[i])**2
-        sigma[i] = (ydata[i] / c) * np.sqrt(b_err + c_err)
-    ydata = ydata / np.max(ydata) # normalise for the fit
-    #sigma = 1./np.sqrt(ydata + 1) # poisson errors on bin counts
-    try:
-        if bounds is not None:
-            popt, pcov = curve_fit(func, x, ydata, p0=p0, sigma=sigma, bounds=bounds)
-        else:
-            popt, pcov = curve_fit(func, x, ydata, p0=p0, sigma=sigma)
-        chisq = np.sum(((func(x, *popt) - ydata)/(sigma))**2)
-        err = np.sqrt(np.diag(pcov))
-        best_values = dict(zip(names, popt))
-        errors = dict(zip(names, err))
-        d = lifetimes(n, names, best_values, errors, pcov)
-        print(d)
-        for i in range(n):
-            d['tau{:d}_init'.format(i + 1)] = init[i]
-        d['x0'] = best_values['x0']
-        d['x0_err'] = errors['x0']
-        d['y0'] = best_values['y0']
-        d['y0_err'] = errors['y0']
-        d['chisq'] = chisq
-        # now plot the fit
+    decays = np.loadtxt(filename, skiprows=2)
+    if exp:
+        times = decays[:, 2]
+        counts = decays[:, 3]
+        counts_norm = counts / np.max(counts)
+    else:
+        times = decays[:, 0]
+        counts = decays[:, 2] + decays[:, 3]
+        counts_norm = counts / np.max(counts)
+    if time_unit == "ps":
+        times = times / 1000.
+    elif time_unit == "us":
+        times = times * 1000.
+    xyn = np.column_stack((times, counts, counts_norm))
+    max_count_time = xyn[np.argmax(counts), 0]
+    min_time = max_count_time - 1.
+    max_time = 30.
+    
+    cutoff = max_count_time
+
+    # now do the tail fit
+    decays = xyn[xyn[:, 0] >= min_time]
+    decays = xyn[xyn[:, 0] <= max_time]
+    
+    if min_time > 0.:
+        xyn[:, 0] = xyn[:, 0] - min_time
+    
+    if exp:
+        # check the x-axis is correct here!
         fig, ax = plt.subplots(figsize=(12,8))
-        plt.plot(xdata, ydata, ls='--', label='data')
-        plt.plot(xdata, func(x, *popt), label='fit')
+        plt.plot(xyn[:, 0], xyn[:, 1], label="decays")
+        ax.set_xlabel("Time (ns)")
+        ax.set_ylabel("Counts ('normalised')")
+        ax.set_xlim([0., 20.])
         plt.legend()
+        plt.title("Decay curve - checking the time adjustment")
         ax.set_yscale('log')
-        plt.show()
+        plt.savefig("{}/{}_decays.pdf".format(path, fluence))
         plt.close()
-    except RuntimeError:
-        d = {}
-        popt = []
-    return (d, popt)
 
-if __name__ == "__main__":
-
-    # min and max times we're concerned with (ns)
-    # for the experimental data this will require checking when the pulse turns on!
-    min_time = 0.5
-    max_time = 10.
-
-    # cutoff time for the tail fit. again, check the curve first
-    cutoff = 1.7
-
-    # initial guesses for the time constants
-    taus = [10.0]
-    p0 = [*[1./len(taus) for _ in range(len(taus))], *taus]
-
+    n_exp = len(tau_init)
+    p0 = [*[1./n_exp for _ in range(n_exp)], *tau_init]
+    names = [] # these will be needed to construct a dataframe later
+    for i in range(n_exp):
+        names.append("a{:d}".format(i + 1))
+    for i in range(n_exp):
+        names.append("tau{:d}".format(i + 1))
     # bounds for each of the time constants
     lbs = tuple([0. for _ in range(len(p0))])
     ubs = tuple([np.inf for _ in range(len(p0))])
     bounds = [lbs, ubs]
 
-    '''
-    import the decay data. should be a two-column file with the first column
-    being the time and the second either being counts or "normalised" counts.
-    '''
-    path = "out/peter_data_refits/lekshmi_detergent"
-    decay_file = "{}/200au.txt".format(path)
-    decays = np.loadtxt(decay_file)
-    # if the decays aren't "normalised", "normalise" them
-    if (np.max(decays[:, 1]) > 1.):
-        counts = decays[:, 1] / np.max(decays[:, 1])
-        decays[:, 1] = counts
-
-    '''
-    now do the same for the IRF. I guess I should start printing out the IRF
-    in the code too, to make this all more consistent
-    '''
-    irf_file = "{}/irf.txt".format(path)
-    irf = np.loadtxt(irf_file)
-    if (np.max(irf[:, 1]) > 1.):
-        counts = irf[:, 1] / np.max(irf[:, 1])
-        irf[:, 1] = counts
-        
-    fig, ax = plt.subplots(figsize=(12,8))
-    plt.plot(irf[:, 0], irf[:, 1], ls='--', label='irf')
-    plt.legend()
-    ax.set_yscale('log')
-    plt.show()
-    plt.close()
-        
-    # first do the tail fit
-    decays = decays[decays[:, 0] >= min_time]
-    decays = decays[decays[:, 0] <= max_time]
-
-    tail = decays[decays[:, 0] >= cutoff]
+    tail = xyn[xyn[:, 0] >= cutoff]
     x = tail[:, 0]
-    y = tail[:, 1]
-    popt, pcov = curve_fit(exp_model, x, y, p0=p0, bounds=bounds)
-    print(popt)
-    print(pcov)
+    y = tail[:, 2]
+    tail_popt, tail_pcov = curve_fit(exp_model, x, y, p0=p0, bounds=bounds)
+    print("popt tail: ",tail_popt)
+    print(tail_pcov)
+    tail_err = np.sqrt(np.diag(tail_pcov))
+    print("errors:", tail_err)
     fig, ax = plt.subplots(figsize=(12,8))
     plt.plot(x, y, ls='--', label='data')
-    plt.plot(x, exp_model(x, *popt), label='fit')
+    plt.plot(x, exp_model(x, *tail_popt), label='fit')
     plt.legend()
+    plt.title("Tail best fit - fluence = {}".format(fluence))
     ax.set_yscale('log')
+    ax.set_ylim([1e-5, 1.5])
+    ax.set_xlim([0., 20.])
+    plt.savefig("{}/{}_tail_fit.pdf".format(path, fluence))
     plt.show()
     plt.close()
+    
+    best_t = list(tail_popt[len(tail_popt)//2:])
+    print("Time constant(s) from tail fit = ", best_t)
+    best_a = list(tail_popt[:len(tail_popt)//2])
+    print("Amplitude(s) from tail fit = ", best_a)
+    # need this to plot the tail fit later
+    bf = exp_model(xyn[:, 0], *tail_popt)
+    
+    '''
+    now do the same for the IRF
+    '''
+    irf_norm = np.zeros(counts.size)
+    if exp: # load in the experimental IRF - two column file
+        irf = np.loadtxt(irf_file, skiprows=2)
+        if (np.max(irf[:, 1]) > 1.):
+            irf[:, 1] = irf[:, 1] / np.max(irf[:, 1])
+        # assumes that the data and IRF are given in the same time units!
+        if time_unit == "ps":
+            irf[:, 0] = irf[:, 0] / 1000.
+        elif time_unit == "us":
+            irf[:, 0] = irf[:, 0] * 1000.
+        irf_min_time = irf[np.argmax(irf[:, 1]), 0] - 1.
+        irf_interp = np.interp(xyn[:, 0], irf[:, 0] - irf_min_time, irf[:, 1])
+        irf_norm = irf_interp / np.max(irf_interp)
+    else: # generate it
+        sigma = pw / 2.355
+        irf_gen = ((1 / (sigma * np.sqrt(2. * np.pi))) *
+                np.exp(-(xyn[:, 0] - pm)**2 / (np.sqrt(2.) * sigma)**2))
+        irf_norm = irf_gen / np.max(irf_gen)
+    
+    """
+    now we need to do something horrible!
+    generate an empty array with the same length as x and irf, and fill
+    the first n_exp elements with our time constants. 
+    we do this because we want to keep them fixed in the subsequent fit, but:
+      - you can't just pass (X, irf, *best_t) because
+        the arrays have to have the same shape (?)
+      - you can't wrap it in lambda X, *best_t because
+        then the reconvolution function is passed
+        with two extra arguments, for some reason
+    This second point is something internal to curve_fit;
+    just doing f = lambda X, *best_t: 
+    print(len((X, *best_t, *best_a, x0, irf_shift))) returns 5, but when you
+    do that in curve_fit it returns 7. 
+    no idea why. bug? something to do with self?
+    """
+    
+    taus = np.zeros(len(xyn[:, 0]))
+    for i in range(n_exp):
+        taus[i] = best_t[i]
 
-    best_tail = popt
-    bf = exp_model(decays[:, 0], *popt)
-    print(len(decays[:, 0]))
-    print(len(bf))
+    if np.max(xyn[:, 1]) > 1.:
+        max_count = np.max(xyn[:, 1])
+    else:
+        print("Warning - assuming max_count = 10000. bin errors might be wrong")
+        max_count = 10000. # arbitrary!
+    sigma = np.zeros(xyn[:, 1].size)
+    for i in range(len(xyn[:, 1])):
+        if (xyn[i, 1] == 0.):
+            count = 1.
+        else:
+            count = xyn[i, 1]
+        sigma[i] = np.sqrt(1. / count + 1. / max_count)
+        
+    irf_shift = 0.1
+    X = (xyn[:, 0], irf_norm, taus)
+    p0 = [*best_a, irf_shift]
+    lbs = tuple([0. for _ in range(len(best_a))] + [-max_time])
+    ubs = tuple([np.inf for _ in range(len(best_a))] + [max_time])
+    bounds = [lbs, ubs]
+    popt, pcov = curve_fit(reconv,
+            X, xyn[:, 2], p0=p0, sigma=sigma, bounds=bounds)
 
-    # now the reconvolution fit. generate an example IRF for now
-    mu = 1.5
-    sigma = 0.45 / 2.355
-    irf = (1 / (sigma * np.sqrt(2. * np.pi))) * np.exp(-(decays[:, 0] - mu)**2 / (np.sqrt(2.) * sigma)**2)
-    irf_max = np.max(irf)
-    irf = irf / irf_max
-    # for experimental ones it might be necessary to match the irf times to the decay times
-    #irf_interp = np.interp(decays[:, 0], irf[:, 0], irf[:, 1])
+    print("best fit for amps, irf_shift: ", popt)
+    print("cov: ", pcov)
+
+    # now we set up the lifetime calculations
+    err = np.sqrt(np.diag(pcov))
+    print("err: ", err)
+    best_values = dict(zip(names, np.concatenate((popt[:n_exp], best_t))))
+    errors = dict(zip(names, np.concatenate((err[:n_exp], tail_err[n_exp:]))))
+    print(errors)
+    # amplitudes and time constants are fitted separately
+    # so their covariance is necessarily zero
+    cov = np.block([
+        [pcov[:n_exp, :n_exp], np.zeros((n_exp, n_exp))],
+        [np.zeros((n_exp, n_exp)), tail_pcov[n_exp:, n_exp:]]
+    ])
+    d = lifetimes(n_exp, names, best_values, errors, cov)
+    d["irf_shift"] = popt[-1]
+    d["irf_shift_err"] = err[-1]
+    d["cutoff"] = cutoff
+    d["tail_popt"] = tail_popt
+    d["tail_pcov"] = tail_pcov
+    print(d)
     fig, ax = plt.subplots(figsize=(12,8))
-    plt.plot(decays[:, 0], decays[:, 1], ls='--', label='data')
-    plt.plot(decays[:, 0], irf, ls='--', label='irf')
-    ax.set_ylim([1e-3, 2])
+    plt.plot(xyn[:, 0], xyn[:, 2], ls='--', label='decays')
+    plt.plot(xyn[:, 0], reconv(X, *popt), label='fit')
+    plot_file = "{}/{}_reconv_{}.pdf".format(path, fluence, str(n_exp))
     plt.legend()
-    ax.set_yscale('log')
-    plt.show()
-    plt.close()
-
-    a = 1.
-    t = 0.5
-    irf_shift = 0.
-    X = (decays[:, 0], irf, bf)
-    p0 = [irf_shift, a, t]
-    bounds = [(-max_time, 0., 0.),(max_time, np.inf, np.inf)]
-    popt, pcov = curve_fit(reconv_model, X, decays[:, 1], p0=p0, bounds=bounds)
-    print(popt)
-    print(pcov)
-    fig, ax = plt.subplots(figsize=(12,8))
-    plt.plot(decays[:, 0], irf, ls='--', label='irf')
-    plt.plot(decays[:, 0], decays[:, 1], ls='--', label='decays')
-    plt.plot(decays[:, 0], reconv_model(X, *popt), label='fit')
-    plt.plot(decays[:, 0], bf, label='tail fit')
-    plt.legend()
+    plt.grid()
+    plt.title("{} - n exp = {}".format(fluence, str(n_exp)))
     ax.set_ylim([1e-4, 2])
+    ax.set_ylabel("Counts")
+    ax.set_xlabel("Time (ns)")
+    ax.set_xlim([-1., 10.])
     ax.set_yscale('log')
-    plt.show()
+    plt.savefig(plot_file)
     plt.close()
+    df = pd.DataFrame(d)
+    df.to_csv("{}/{}_fit_info_{}.csv".format(path, fluence, str(n_exp)))
+    #with open("{}/{}_fit.txt".format(path, fluence), mode="w") as f:
+     #   f.write("initial x / IRF shift = {:6.4f} ns\n".format(min_time))
+      #  f.write("cutoff time for tail fit = {:6.4f} ns\n".format(cutoff))
+       # if (n_exp == 1):
+        #    f.write("tail amplitude = {:6.4f} +- {:6.4f}\n".format(tail_popt[0], np.sqrt(np.diag(tail_pcov))[0]))
+         #   f.write("tau = {:6.4f} +- {:6.4f} ns\n".format(tail_popt[1], np.sqrt(np.diag(tail_pcov))[1]))
+          #  f.write("reconv amplitude = {:6.4f} +- {:6.4f}\n".format(popt[0], np.sqrt(np.diag(pcov))[0]))
+           # f.write("irf_shift = {:6.4f} +- {:6.4f} ns\n".format(popt[1], np.sqrt(np.diag(pcov))[1]))
+        #else:
+      #      f.write("tail a1 = {:6.4f} +- {:6.4f}\n".format(tail_popt[0], np.sqrt(np.diag(tail_pcov))[0]))
+      #      f.write("tail a2 = {:6.4f} +- {:6.4f}\n".format(tail_popt[1], np.sqrt(np.diag(tail_pcov))[1]))
+      #      f.write("tau1 = {:6.4f} +- {:6.4f} ns\n".format(tail_popt[2], np.sqrt(np.diag(tail_pcov))[2]))
+      #      f.write("tau2 = {:6.4f} +- {:6.4f} ns\n".format(tail_popt[3], np.sqrt(np.diag(tail_pcov))[3]))    
+      #      f.write("reconv a1 = {:6.4f} +- {:6.4f}\n".format(popt[0], np.sqrt(np.diag(pcov))[0]))
+      #      f.write("reconv a2 = {:6.4f} +- {:6.4f}\n".format(popt[1], np.sqrt(np.diag(pcov))[1]))
+      #      f.write("irf_shift = {:6.4f} +- {:6.4f} ns\n".format(popt[2], np.sqrt(np.diag(pcov))[2]))
+      #      f.write("tau_amp = {:6.4f} ns\n".format(tau_amp))
+
+       # f.write("tail covariance matrix: ")
+       # for value in tail_pcov:
+       #     f.write(str(value))
+
+       # f.write("amp/irf shift covariance matrix: ")
+       # for value in pcov:
+       #     f.write(str(value))
+    return d
+
+if __name__ == "__main__":
+    
+    decay_file = "out/detergent/hex/0.00__5.00_counts.dat"
+    #decay_file = "out/peter_data_refits/lekshmi_detergent/second_batch/LHCII Detergent 1MHz 18000au.dat"
+    irf_file = "out/peter_data_refits/lekshmi_detergent/second_batch/IRF 1MHz.dat"
+    do_fit(decay_file, [1.0, 3.0], exp=False, pm=0.4, pw=0.25, time_unit="ps")

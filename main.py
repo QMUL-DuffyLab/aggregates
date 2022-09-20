@@ -9,6 +9,7 @@ import argparse
 from lmfit import Model
 from scipy import signal
 import fit
+import multi_fit
 import defaults
 from trimer import check_neighbours, Aggregate, theoretical_aggregate
 from kmc import Pulse, Rates, Iteration
@@ -75,7 +76,7 @@ per trimer will also need to be changed.
         bt = open("{}/{:3.2f}_{:3.2f}_bi_tau.dat".format(path, args.rho_q, args.po_pq_ent), "w")
         tt = open("{}/{:3.2f}_{:3.2f}_tri_tau.dat".format(path, args.rho_q, args.po_pq_ent), "w")
         # st = open("{}/{:3.2f}_tau_min_error.dat".format(path, args.rho_q), "w")
-    fluences = defaults.fluences
+    fluences = args.fluences
     for fluence in fluences:
         n_per_t = defaults.xsec_485nm * fluence
         os.makedirs(path, exist_ok=True)
@@ -98,11 +99,24 @@ per trimer will also need to be changed.
                     verbose=verbose)
             if not args.files_only:
                 # this doesn't work because anaconda overwrites all my aliases and conflicts with the system mpi i installed myself, because it's fucking useless
-                # subprocess.run(['mpirun', '-np', ' 4', './f_iter', it.params_file], check=True)
-                subprocess.run(['./f_iter', it.params_file], check=True)
+                subprocess.run(['which', 'mpirun'], check=True)
+                subprocess.run(['/usr/lib64/openmpi/bin/mpirun', '-np', '4', './f_iter', it.params_file], check=True)
+                # subprocess.run(['./f_iter', it.params_file], check=True)
 
-        if os.path.isfile("{}/{}counts.dat".format(path, file_prefix)):
-            hist = np.loadtxt("{}/{}counts.dat".format(path, file_prefix))
+        count_file = "{}/{}counts.dat".format(path, file_prefix)
+        if os.path.isfile(count_file):
+            mono_fit = multi_fit.do_fit(count_file, [3.6], exp=False,
+                    pw = args.pulsewidth / 1000.,
+                    pm = args.pulse_mean / 1000.,
+                    time_unit = 'ps')
+            bi_fit = multi_fit.do_fit(count_file, [0.3, 3.6], exp=False,
+                    pw = args.pulsewidth / 1000.,
+                    pm = args.pulse_mean / 1000.,
+                    time_unit = 'ps')
+            # fits = pd.concat(mono_fit, bi_fit)
+            print("Mono fit: fit_info = ", mono_fit)
+            print("Bi fit: fit_info = ", mono_fit)
+            hist = np.loadtxt(count_file)
             xvals = hist[:, 0] + ((hist[0, 1] - hist[0, 0]) / 2.)
             histvals = hist[:, 2] + hist[:, 3]
             long_gauss = 1. / (pulse.sigma * np.sqrt(2. * np.pi)) * \

@@ -9,7 +9,8 @@ binwidth = 50. # histogram bin width
 # pulse stuff
 # fluences = [6.07E12, 3.03E13, 6.24E13, 1.31E14,
 #         1.9E14, 3.22E14, 6.12E14, 9.48E14]
-xsec_485nm = 2.74E-15 # xsec of LHCII at 485nm - could change
+# xsec_485nm = 2.74E-15 # xsec of LHCII at 485nm - could change
+xsec_485nm = 2.74E-16 # xsec of LHCII at 485nm - could change
 # fluences = [9.48E14, 6.12E14, 3.22E14, 1.9E14, 1.31E14,
 #         6.24E13, 3.03E13, 6.07E12]
 fluences_1Mhz = [1.79E14, 4.48E14, 8.96E14, 1.34E15,

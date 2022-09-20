@@ -282,11 +282,13 @@ def do_fit(filename, tau_init, irf_file=None,
         [np.zeros((n_exp, n_exp)), tail_pcov[n_exp:, n_exp:]]
     ])
     d = lifetimes(n_exp, names, best_values, errors, cov)
+    d["n_exp"] = n_exp
     d["irf_shift"] = popt[-1]
     d["irf_shift_err"] = err[-1]
     d["cutoff"] = cutoff
-    d["tail_popt"] = tail_popt
-    d["tail_pcov"] = tail_pcov
+    # these aren't really necessary
+    # d["tail_popt"] = tail_popt
+    # d["tail_err"] = tail_err
     print(d)
     fig, ax = plt.subplots(figsize=(12,8))
     plt.plot(xyn[:, 0], xyn[:, 2], ls='--', label='decays')
@@ -302,7 +304,7 @@ def do_fit(filename, tau_init, irf_file=None,
     ax.set_yscale('log')
     plt.savefig(plot_file)
     plt.close()
-    df = pd.DataFrame(d)
+    df = pd.DataFrame(d, index=[0])
     df.to_csv("{}/{}_fit_info_{}.csv".format(path, fluence, str(n_exp)))
     #with open("{}/{}_fit.txt".format(path, fluence), mode="w") as f:
      #   f.write("initial x / IRF shift = {:6.4f} ns\n".format(min_time))

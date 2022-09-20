@@ -15,7 +15,7 @@ program iteration
   logical(c_bool) :: emissive(4)
   integer(ip) :: i, j, k, n_sites, max_neighbours, rate_size, n_current,&
     seed_size, max_count, curr_max_count, n_quenchers, mpierr, rank,&
-    num_procs, n_abs, n_se, n_d, n_a
+    num_procs
   integer(ip), dimension(1) :: maxloc_temp_index
   integer(ip), dimension(4) :: curr_counts
   integer(ip), dimension(4, 1) :: curr_locs
@@ -50,15 +50,12 @@ program iteration
   dt = 1.0_dp
   pulse = construct_pulse(mu, fwhm, dt, n_per_t, n_sites)
   ! base_rates(1) is where a generation rate will go
-  ! base_rates(2) is a hopping rate
-  ds = entropic_penalties(base_rates(2))
+  ! base_rates(2) is stimulated emission
+  ! base_rates(3) is the hopping rate
+  ds = entropic_penalties(base_rates(3))
 
   i = 0
   curr_max_count = 0
-  n_abs = 0
-  n_se = 0
-  n_d = 0
-  n_a = 0
   ! keep iterating till we get a decent number of counts
   ! pool decays and pre-quencher decays are emissive, so
   ! those are what we're concerned with for the fit
@@ -118,10 +115,6 @@ program iteration
   end do
   write(*, *) "Process ", rank, " has max count ",&
     curr_max_count
-  write (*, *) "n_abs = ", n_abs
-  write (*, *) "n_se  = ", n_se
-  write (*, *) "n_d   = ", n_d
-  write (*, *) "n_a   = ", n_a
 
   ! write(*, *) "]."
   call MPI_Barrier(MPI_COMM_WORLD, mpierr)
@@ -376,10 +369,10 @@ program iteration
           ! ft = \sigma_eff * J(t) (done in pulse construction above)
           ! N' = 24.0_dp to start - could also be 42 (all chls) or
           ! 54 (all pigments including carotenoids)
-          ! and we assume \sigma_SE = \sigma (thanks Einstein)
+          ! and we assume (at first) \sigma_SE = \sigma (thanks Einstein)
           ! absorption first: k_abs = (ft / N') * (N - n)
           rates(1) = (ft / 24.0_dp) * (24.0_dp - n)
-          ! now stimulated emission: k_SE = (ft / N') * n
+          ! now stimulated emission: k_SE = \sigma_SE (ft / N') * n
           rates(2) = (ft / 24.0_dp) * n
         end if
       else
@@ -596,6 +589,10 @@ program iteration
               exit
             end if
           end do
+          ! Poisson probability of one event occurring in this
+          ! interval: let rates(k) -> \lambda and n = 1. Then
+          ! p = exp(-n \lambda dt) \lambda^n / n!
+          ! = \lambda exp(-\lambda dt), as below
           probs = [(rates(k) * exp(-1.0_dp * rates(k) * dt), &
             k = 1, rate_size)]
           ! monte carlo test

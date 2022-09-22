@@ -257,7 +257,7 @@ def do_fit(filename, tau_init, irf_file=None,
             count = xyn[i, 1]
         sigma[i] = np.sqrt(1. / count + 1. / max_count)
         
-    irf_shift = 0.1
+    irf_shift = 0.0
     X = (xyn[:, 0], irf_norm, taus)
     p0 = [*best_a, irf_shift]
     lbs = tuple([0. for _ in range(len(best_a))] + [-max_time])

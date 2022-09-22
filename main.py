@@ -109,7 +109,7 @@ per trimer will also need to be changed.
                 print("monoexponential fit didn't work")
                 mono_fit = {}
             try:
-                bi_fit = multi_fit.do_fit(count_file, [0.3, 3.6], exp=False,
+                bi_fit = multi_fit.do_fit(count_file, [1/rates.k_ann, 3.6], exp=False,
                         pw = args.pulsewidth / 1000.,
                         pm = args.pulse_mean / 1000.,
                         time_unit = 'ps')

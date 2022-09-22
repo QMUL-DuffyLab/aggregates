@@ -190,8 +190,8 @@ def do_fit(filename, tau_init, irf_file=None,
     ax.set_yscale('log')
     ax.set_ylim([1e-5, 1.5])
     ax.set_xlim([0., 20.])
-    plt.savefig("{}/{}_tail_fit.pdf".format(path, fluence))
-    plt.show()
+    plt.savefig("{}/{}_tail_fit_{}.pdf".format(path, fluence, n_exp))
+    # plt.show()
     plt.close()
     
     best_t = list(tail_popt[len(tail_popt)//2:])
@@ -286,9 +286,6 @@ def do_fit(filename, tau_init, irf_file=None,
     d["irf_shift"] = popt[-1]
     d["irf_shift_err"] = err[-1]
     d["cutoff"] = cutoff
-    # these aren't really necessary
-    # d["tail_popt"] = tail_popt
-    # d["tail_err"] = tail_err
     print(d)
     fig, ax = plt.subplots(figsize=(12,8))
     plt.plot(xyn[:, 0], xyn[:, 2], ls='--', label='decays')
@@ -306,36 +303,10 @@ def do_fit(filename, tau_init, irf_file=None,
     plt.close()
     df = pd.DataFrame(d, index=[0])
     df.to_csv("{}/{}_fit_info_{}.csv".format(path, fluence, str(n_exp)))
-    #with open("{}/{}_fit.txt".format(path, fluence), mode="w") as f:
-     #   f.write("initial x / IRF shift = {:6.4f} ns\n".format(min_time))
-      #  f.write("cutoff time for tail fit = {:6.4f} ns\n".format(cutoff))
-       # if (n_exp == 1):
-        #    f.write("tail amplitude = {:6.4f} +- {:6.4f}\n".format(tail_popt[0], np.sqrt(np.diag(tail_pcov))[0]))
-         #   f.write("tau = {:6.4f} +- {:6.4f} ns\n".format(tail_popt[1], np.sqrt(np.diag(tail_pcov))[1]))
-          #  f.write("reconv amplitude = {:6.4f} +- {:6.4f}\n".format(popt[0], np.sqrt(np.diag(pcov))[0]))
-           # f.write("irf_shift = {:6.4f} +- {:6.4f} ns\n".format(popt[1], np.sqrt(np.diag(pcov))[1]))
-        #else:
-      #      f.write("tail a1 = {:6.4f} +- {:6.4f}\n".format(tail_popt[0], np.sqrt(np.diag(tail_pcov))[0]))
-      #      f.write("tail a2 = {:6.4f} +- {:6.4f}\n".format(tail_popt[1], np.sqrt(np.diag(tail_pcov))[1]))
-      #      f.write("tau1 = {:6.4f} +- {:6.4f} ns\n".format(tail_popt[2], np.sqrt(np.diag(tail_pcov))[2]))
-      #      f.write("tau2 = {:6.4f} +- {:6.4f} ns\n".format(tail_popt[3], np.sqrt(np.diag(tail_pcov))[3]))    
-      #      f.write("reconv a1 = {:6.4f} +- {:6.4f}\n".format(popt[0], np.sqrt(np.diag(pcov))[0]))
-      #      f.write("reconv a2 = {:6.4f} +- {:6.4f}\n".format(popt[1], np.sqrt(np.diag(pcov))[1]))
-      #      f.write("irf_shift = {:6.4f} +- {:6.4f} ns\n".format(popt[2], np.sqrt(np.diag(pcov))[2]))
-      #      f.write("tau_amp = {:6.4f} ns\n".format(tau_amp))
-
-       # f.write("tail covariance matrix: ")
-       # for value in tail_pcov:
-       #     f.write(str(value))
-
-       # f.write("amp/irf shift covariance matrix: ")
-       # for value in pcov:
-       #     f.write(str(value))
     return d
 
 if __name__ == "__main__":
     
-    decay_file = "out/detergent/hex/0.00__5.00_counts.dat"
-    #decay_file = "out/peter_data_refits/lekshmi_detergent/second_batch/LHCII Detergent 1MHz 18000au.dat"
-    irf_file = "out/peter_data_refits/lekshmi_detergent/second_batch/IRF 1MHz.dat"
-    do_fit(decay_file, [1.0, 3.0], exp=False, pm=0.4, pw=0.25, time_unit="ps")
+    decay_file = "out/fast_entropic/hex/0.80_0.05_counts.dat"
+    # irf_file = "out/peter_data_refits/lekshmi_detergent/second_batch/IRF 1MHz.dat"
+    do_fit(decay_file, [1.0, 3.0], exp=False, pm=0.35, pw=0.09, time_unit="ps")

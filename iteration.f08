@@ -34,6 +34,8 @@ program iteration
 
   call init()
 
+  ! GCC docs say that random_number etc implement xoshiro1024*
+  ! since F95, which should be more than enough for our purposes
   call random_seed(size=seed_size)
   allocate(seed(seed_size))
 
@@ -426,7 +428,7 @@ program iteration
           ! pop_loss(2) = .true.
         else if ((process.gt.2).and.(process.lt.(rate_size - 3))) then
           ! hop to neighbour. -1 because of the generation rate
-          nn = neighbours(ind, process - 1)
+          nn = neighbours(ind, process - 2)
           n_i(ind) = n_i(ind) - 1
           n_i(nn)  = n_i(nn)  + 1
         else if (process.eq.rate_size - 3) then

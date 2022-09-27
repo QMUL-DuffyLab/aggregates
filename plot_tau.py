@@ -17,7 +17,7 @@ npt = defaults.xsec * np.array(defaults.fluences)
 files = ["{}/{}_{:3.2f}_{}_fit_info.csv".format(file_path, rho_q,
     n, fwhm) for n in npt]
 # list the parameters we need (plus their errors)
-k = ["a1", "a2", "tau1", "tau2", "tau_amp"]
+k = ["a1", "a2", "tau1", "tau2", "tau_amp", "tau_int"]
 k = k + [x + "_err" for x in k]
 arr = np.zeros((len(k), len(files)))
 for i, f in enumerate(files):
@@ -25,16 +25,23 @@ for i, f in enumerate(files):
         d = pd.read_csv(f)
         # find the number of exponentials with the smallest tau_amp error
         d = d.set_index('n_exp')
-        minloc = d.idxmin(axis=0)['tau_amp_err']
+        print(d['best_fit'].iloc[0])
+        minloc = d['best_fit'].iloc[0] - 1
+        print(minloc)
         # loop over the keys and if they're there, put the values in
         # missing keys will -> 0, missing values -> nan (I think?)
+        b = d.iloc[minloc]
+        print(b)
         for j, key in enumerate(k):
             if key in d.keys():
-                arr[j, i] = d[key][minloc]
+                arr[j, i] = b[key]
 # put back in a dict to make the following more readable
 d = dict(zip(k, arr))
 
 # plot tau_amp and the actual time constants with errors
+plt.errorbar(npt, d["tau_int"], yerr=d["tau_int_err"],
+    label=r'$ \left< \tau_{\text{int.}} \right> $',
+    elinewidth=0.5, capsize=2.0, marker='o', ms=6.0, lw=3.0)
 plt.errorbar(npt, d["tau_amp"], yerr=d["tau_amp_err"],
     label=r'$ \left< \tau_{\text{amp.}} \right> $',
     elinewidth=0.5, capsize=2.0, marker='o', ms=6.0, lw=3.0)

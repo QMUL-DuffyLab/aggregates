@@ -148,6 +148,21 @@ def do_fit(filename, tau_init, irf_file=None,
     
     if min_time > 0.:
         xyn[:, 0] = xyn[:, 0] - min_time
+
+    # errors for each count
+    if np.max(xyn[:, 1]) > 1.:
+        max_count = np.max(xyn[:, 1])
+    else:
+        print("Warning - assuming max_count = 10000. bin errors might be wrong")
+        max_count = 10000. # arbitrary!
+    sigma = np.zeros(xyn[:, 1].size)
+    for i in range(len(xyn[:, 1])):
+        if (xyn[i, 1] == 0.):
+            count = 1.
+        else:
+            count = xyn[i, 1]
+        sigma[i] = np.sqrt(1. / count + 1. / max_count)
+        
     
     if exp:
         # check the x-axis is correct here!
@@ -175,9 +190,11 @@ def do_fit(filename, tau_init, irf_file=None,
     bounds = [lbs, ubs]
 
     tail = xyn[xyn[:, 0] >= cutoff]
-    x = tail[:, 0]
+    tail_sigma = sigma[xyn[:, 0] >= cutoff]
+    x = tail[:, 0] - cutoff
     y = tail[:, 2]
-    tail_popt, tail_pcov = curve_fit(exp_model, x, y, p0=p0, bounds=bounds)
+    tail_popt, tail_pcov = curve_fit(exp_model, x, y, p0=p0,
+            sigma=tail_sigma, bounds=bounds)
     print("popt tail: ",tail_popt)
     print(tail_pcov)
     tail_err = np.sqrt(np.diag(tail_pcov))
@@ -187,9 +204,9 @@ def do_fit(filename, tau_init, irf_file=None,
     plt.plot(x, exp_model(x, *tail_popt), label='fit')
     plt.legend()
     plt.title("Tail best fit - fluence = {}".format(fluence))
-    ax.set_yscale('log')
+    # ax.set_yscale('log')
     ax.set_ylim([1e-5, 1.5])
-    ax.set_xlim([0., 20.])
+    ax.set_xlim([-1., np.max(x) * 1.1])
     plt.savefig("{}/{}_tail_fit_{}.pdf".format(path, fluence, n_exp))
     # plt.show()
     plt.close()
@@ -218,9 +235,9 @@ def do_fit(filename, tau_init, irf_file=None,
         irf_interp = np.interp(xyn[:, 0], irf[:, 0] - irf_min_time, irf[:, 1])
         irf_norm = irf_interp / np.max(irf_interp)
     else: # generate it
-        sigma = pw / 2.355
-        irf_gen = ((1 / (sigma * np.sqrt(2. * np.pi))) *
-                np.exp(-(xyn[:, 0] - pm)**2 / (np.sqrt(2.) * sigma)**2))
+        sig = pw / 2.355
+        irf_gen = ((1 / (sig * np.sqrt(2. * np.pi))) *
+                np.exp(-(xyn[:, 0] - pm)**2 / (np.sqrt(2.) * sig)**2))
         irf_norm = irf_gen / np.max(irf_gen)
     
     """
@@ -244,19 +261,6 @@ def do_fit(filename, tau_init, irf_file=None,
     for i in range(n_exp):
         taus[i] = best_t[i]
 
-    if np.max(xyn[:, 1]) > 1.:
-        max_count = np.max(xyn[:, 1])
-    else:
-        print("Warning - assuming max_count = 10000. bin errors might be wrong")
-        max_count = 10000. # arbitrary!
-    sigma = np.zeros(xyn[:, 1].size)
-    for i in range(len(xyn[:, 1])):
-        if (xyn[i, 1] == 0.):
-            count = 1.
-        else:
-            count = xyn[i, 1]
-        sigma[i] = np.sqrt(1. / count + 1. / max_count)
-        
     irf_shift = 0.0
     X = (xyn[:, 0], irf_norm, taus)
     p0 = [*best_a, irf_shift]
@@ -265,6 +269,7 @@ def do_fit(filename, tau_init, irf_file=None,
     bounds = [lbs, ubs]
     popt, pcov = curve_fit(reconv,
             X, xyn[:, 2], p0=p0, sigma=sigma, bounds=bounds)
+    bf = reconv(X, *popt)
 
     print("best fit for amps, irf_shift: ", popt)
     print("cov: ", pcov)
@@ -274,7 +279,6 @@ def do_fit(filename, tau_init, irf_file=None,
     print("err: ", err)
     best_values = dict(zip(names, np.concatenate((popt[:n_exp], best_t))))
     errors = dict(zip(names, np.concatenate((err[:n_exp], tail_err[n_exp:]))))
-    print(errors)
     # amplitudes and time constants are fitted separately
     # so their covariance is necessarily zero
     cov = np.block([
@@ -287,23 +291,31 @@ def do_fit(filename, tau_init, irf_file=None,
     d["irf_shift_err"] = err[-1]
     d["cutoff"] = cutoff
     print(d)
-    fig, ax = plt.subplots(figsize=(12,8))
-    plt.plot(xyn[:, 0], xyn[:, 2], ls='--', label='decays')
-    plt.plot(xyn[:, 0], reconv(X, *popt), label='fit')
+    fig, axs = plt.subplots(2, 1, figsize=(12,8))
+    plt.suptitle("{} - n exp = {}".format(fluence, str(n_exp)))
+    axs[0].plot(xyn[:, 0], xyn[:, 2], ls='--', marker='o', label='decays')
+    axs[0].plot(xyn[:, 0], bf, label='fit')
     plot_file = "{}/{}_reconv_{}.pdf".format(path, fluence, str(n_exp))
-    plt.legend()
-    plt.grid()
-    plt.title("{} - n exp = {}".format(fluence, str(n_exp)))
-    ax.set_ylim([1e-4, 2])
-    ax.set_ylabel("Counts")
-    ax.set_xlabel("Time (ns)")
-    ax.set_xlim([-1., 10.])
-    ax.set_yscale('log')
+    axs[0].legend()
+    axs[0].grid(True)
+    axs[1].grid(True)
+    axs[0].set_ylim([0., 1.1])
+    axs[0].set_ylabel("Counts")
+    axs[0].set_xlabel("Time (ns)")
+    axs[0].set_xlim([-1., 10.])
+    axs[1].plot(xyn[:, 0], xyn[:, 2], ls='--', marker='o', label='decays')
+    axs[1].plot(xyn[:, 0], reconv(X, *popt), label='fit')
+    axs[1].set_yscale('log')
+    axs[1].set_ylim([1e-2, 1.5])
+    axs[1].set_ylabel("Counts")
+    axs[1].set_xlabel("Time (ns)")
+    axs[1].set_xlim([-1., 10.])
+    fig.tight_layout()
     plt.savefig(plot_file)
     plt.close()
     df = pd.DataFrame(d, index=[0])
     df.to_csv("{}/{}_fit_info_{}.csv".format(path, fluence, str(n_exp)))
-    return d
+    return (d, np.column_stack((xyn[:, 0], xyn[:, 2], bf)))
 
 if __name__ == "__main__":
     

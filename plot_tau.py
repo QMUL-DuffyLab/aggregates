@@ -9,8 +9,6 @@ import defaults
 file_path = sys.argv[1]
 rho_q = sys.argv[2]
 fwhm = sys.argv[3]
-# if os.path.isfile("out/lhcii_agg_mica.txt".format(file_path)):
-# exp = np.loadtxt("out/exp_lhcii_solution.dat")
 
 fig, ax = plt.subplots()
 npt = defaults.xsec * np.array(defaults.fluences)
@@ -23,11 +21,9 @@ arr = np.zeros((len(k), len(files)))
 for i, f in enumerate(files):
     if os.path.isfile(f):
         d = pd.read_csv(f)
-        # find the number of exponentials with the smallest tau_amp error
         d = d.set_index('n_exp')
         print(d['best_fit'].iloc[0])
         minloc = d['best_fit'].iloc[0] - 1
-        print(minloc)
         # loop over the keys and if they're there, put the values in
         # missing keys will -> 0, missing values -> nan (I think?)
         b = d.iloc[minloc]
@@ -62,8 +58,6 @@ plt.scatter(npt, d["tau2"], s=d["a2"] * 500., c='#888888')
 
 plt.grid()
 plt.legend()
-ax.set_xscale('linear')
-ax.set_yscale('linear')
 ax.set_xlabel(r'Excitations per trimer $ \rho_{\text{exc.}} $')
 ax.set_ylabel(r'$ \left< \tau \right> (\text{ns}) $')
 ax.minorticks_off()

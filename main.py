@@ -7,8 +7,6 @@ import pandas as pd
 import subprocess
 import argparse
 from lmfit import Model
-from scipy import signal
-import fit
 import multi_fit
 import defaults
 from trimer import check_neighbours, Aggregate, theoretical_aggregate
@@ -149,13 +147,6 @@ per trimer will also need to be changed.
                do some stuff with the dataframe (set up to do the
                multi scatter plot as a function of n_per_t)
             """
-            # horrible way of doing this. but allows us to look at
-            # partially finished runs
-            # np.savetxt(mt, np.array(mono_tau[1]).reshape(1, 3))
-            # np.savetxt(bt, np.array(bi_tau[1]).reshape(1, 3))
-            # np.savetxt(tt, np.array(tri_tau[1]).reshape(1, 3))
-            # fit.plot_fits(mono_tau, bi_tau, tri_tau, histvals,
-            #     xvals, args.model, "{}/{}".format(path, file_prefix))
     if not args.files_only:
         mt.close()
         bt.close()

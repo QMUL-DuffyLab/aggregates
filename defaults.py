@@ -24,6 +24,9 @@ fluences_1Mhz = [1.79E14, 4.48E14, 8.96E14, 1.34E15,
 fluences_10Mhz = [1.79E13, 4.48E13, 8.96E13, 1.34E14,
         1.79E14, 4.48E14, 8.96E14, 1.34E15, 1.52E15, 1.61E15,
         1.79E15, 2.24E15, 2.6E15]
+# these aren't really fluences, i'm abusing notation because the rest
+# of the code looks for fluences. they're arbitrary excitation densities
+# - by doing this we get average excitations per trimer of 0.05, 0.10, etc
 fluences = [x / xsec for x in [0.05, 0.10, 0.25, 0.50,
             0.75, 1.0, 1.25, 1.5, 2., 3., 4., 5.]]
 pulse_fwhm = 90. # fwhm of pulse in ps

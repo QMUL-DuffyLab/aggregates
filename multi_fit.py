@@ -292,7 +292,8 @@ def do_fit(filename, tau_init, irf_file=None,
     d["cutoff"] = cutoff
     print(d)
     fig, axs = plt.subplots(2, 1, figsize=(12,8))
-    plt.suptitle("{} - n exp = {}".format(fluence, str(n_exp)))
+    plt.suptitle("{}: ".format(fluence) + r'$ \tau_{\text{amp.}} = $'
+            + "{:4.2f} +/- {:4.2f} ns".format(d["tau_amp"], d["tau_amp_err"]))
     axs[0].plot(xyn[:, 0], xyn[:, 2], ls='--', marker='o', label='decays')
     axs[0].plot(xyn[:, 0], bf, label='fit')
     plot_file = "{}/{}_reconv_{}.pdf".format(path, fluence, str(n_exp))

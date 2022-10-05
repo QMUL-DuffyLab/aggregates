@@ -14,7 +14,9 @@ from kmc import Pulse, Rates, Iteration
 
 if __name__ == "__main__":
     start_time = time.monotonic()
-    parser = argparse.ArgumentParser(description="set up aggregate simualtion")
+    parser = argparse.ArgumentParser(
+            description="set up aggregate simulation",
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     # required arguments
     parser.add_argument('-q', '--rho_q', type=float, required=True,
             help=r'Density of quenchers \rho_q')
@@ -25,7 +27,8 @@ if __name__ == "__main__":
             choices=[*defaults.rates_dict],
             help='''
 Quenching model to use. Options are:
-'detergent', 'hop_only', 'irrev', 'rev', 'fast_irrev', 'slow', 'exciton'.
+'detergent', 'hop_only', 'slow_entropic', 'medium_entropic', 'fast_entropic',
+'slow_non-entropic', 'medium_non-entropic', 'fast_non-entropic',
 See defaults.py for specific numbers''')
     # optional arguments
     parser.add_argument('-pr', '--protein_radius', type=float,
@@ -52,23 +55,17 @@ per trimer will also need to be changed.
             help="Pass to disable running the code and just re-fit the data")
     parser.add_argument('--files_only', action=argparse.BooleanOptionalAction,
             help="Pass to disable the running and the fits and just generate input files")
-    parser.add_argument('--detergent', action=argparse.BooleanOptionalAction,
-            help="Run for detergent case")
 
     args = parser.parse_args()
-    if args.detergent:
-        args.model = "hop_only"
-        args.rho_q = 0.0
     print(args)
+    # make sure the fortran is compiled and up to date
+    subprocess.run(['mpifort',
+        '-O2', 'iteration.f90', '-o', './agg_mc'], check=True)
     path = "out/{}/{}".format(args.model, args.lattice)
     os.makedirs(path, exist_ok=True)
     rates = defaults.rates_dict[args.model]
     rates.print()
     pulse = Pulse(fwhm=args.pulsewidth, mu=args.pulse_mean)
-    if not args.files_only:
-        mt = open("{}/{:3.2f}_mono_tau.dat".format(path, args.rho_q), "w")
-        bt = open("{}/{:3.2f}_bi_tau.dat".format(path, args.rho_q), "w")
-        tt = open("{}/{:3.2f}_tri_tau.dat".format(path, args.rho_q), "w")
     fluences = args.fluences
     for fluence in fluences:
         n_per_t = defaults.xsec * fluence
@@ -79,20 +76,15 @@ per trimer will also need to be changed.
 
         if not args.fit_only:
             verbose = False
-            # note - second parameter here is the nn cutoff. set to 0 to
-            # disable excitation hopping between trimers
-            if args.detergent:
-                agg = theoretical_aggregate(args.protein_radius,
-                        0. * args.protein_radius, args.lattice, args.n_trimers)
-            else:
-                agg = theoretical_aggregate(args.protein_radius,
-                        2.01 * args.protein_radius, args.lattice, args.n_trimers)
+            # note - second parameter here is the nn cutoff
+            agg = theoretical_aggregate(args.protein_radius,
+                    2.01 * args.protein_radius, args.lattice, args.n_trimers)
             it = Iteration(agg, rates, pulse, args.rho_q,
                     path, file_prefix, n_per_t, args.binwidth, args.max_count,
                     verbose=verbose)
             if not args.files_only:
-                subprocess.run(['which', 'mpirun'], check=True)
-                subprocess.run(['/usr/lib64/openmpi/bin/mpirun', '-np', '4', './f_iter', it.params_file], check=True)
+                subprocess.run(['mpirun',
+                    '-np', '4', './agg_mc', it.params_file], check=True)
                 # non-MPI run
                 # subprocess.run(['./f_iter', it.params_file], check=True)
 
@@ -125,33 +117,23 @@ per trimer will also need to be changed.
             print("Bi fit: fit_info = ", bi_d)
             tau_init = [1./rates.g_pool, 1./rates.k_ann, 500.]
             if args.fit_only:
-                fig, ax = plt.subplots(figsize=(12,8))
+                fig, ax = plt.subplots(figsize=(8,6))
                 ax.set_ylabel("Counts")
                 ax.set_xlabel("Time (ns)")
                 ax.set_xlim([-1., 10.])
                 ax.plot(mono_fit[:, 0], mono_fit[:, 1], ls='--', marker='o',
-                        lw=2., label='decays')
+                        lw=3., label='decays')
                 if mono_fit.size > 0:
-                    ax.plot(mono_fit[:, 0], mono_fit[:, 2], lw=1.5, label='mono')
+                    ax.plot(mono_fit[:, 0], mono_fit[:, 2], lw=2.5, label='mono')
                 if bi_fit.size > 0:
-                    ax.plot(bi_fit[:, 0], bi_fit[:, 2], lw=1.5, label='bi')
+                    ax.plot(bi_fit[:, 0], bi_fit[:, 2], lw=2.5, label='bi')
                 fig.tight_layout()
                 plt.grid()
                 plt.legend()
                 plt.show()
-                best_n = input("best fit - 1 or 2 exponentials?")
+                best_n = input("Best fit - 1 or 2 exponentials?")
                 df["best_fit"] = best_n
             df.to_csv("{}/{}fit_info.csv".format(path, file_prefix))
-            
-            """
-               do some stuff with the dataframe (set up to do the
-               multi scatter plot as a function of n_per_t)
-            """
-    if not args.files_only:
-        mt.close()
-        bt.close()
-        tt.close()
-
     # subprocess.run(['python', 'plot_tau.py', '{}'.format(path),
     #     '{:3.2f}'.format(args.rho_q)], check=True)
     end_time = time.monotonic()

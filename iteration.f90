@@ -59,8 +59,6 @@ program iteration
   i = 0
   curr_max_count = 0
   ! keep iterating till we get a decent number of counts
-  ! pool decays and pre-quencher decays are emissive, so
-  ! those are what we're concerned with for the fit
   do while (curr_max_count.lt.max_count)
     seed = (i * num_procs) + rank
     ! write(*, *) "Process ", rank, " has seed ", (i * num_procs) + rank,&
@@ -85,7 +83,8 @@ program iteration
     i = i + 1
 
     if (mod(i, 100).eq.0) then
-      ! NB: in theory to do this we have to add together all the emissive
+      ! every 100 iterations, check the current bin counts
+      ! NB: to get exact numbers we'd have to add together all the emissive
       ! counts, and we could do that, but it's unecessary since we don't need
       ! exactly max_counts counts, it's just to get better statistics.
       ! hence, just take the current highest count for each emissive process.
@@ -169,9 +168,9 @@ program iteration
       ! check which decays are emissive
       read(unit=emissive_str, fmt=*) emissive 
       ! note - rate_size is set to this because there are a maximum
-      ! of five processes that can happen on any given site that aren't
-      ! hopping (four on a pool chlorophyll, five on pq, four on q).
-      ! hence, max_neighbours + 5 is always a long enough array to hold
+      ! of six processes that can happen on any given site that aren't
+      ! hopping (five on a pool chlorophyll, six on pq, four on q).
+      ! hence, max_neighbours + 6 is always a long enough array to hold
       ! every possible rate on every possible site.
       ! i actually ignore the possibility of hopping on pq though, so in
       ! principle this could be reduced by one, but then we'd have to check
@@ -199,6 +198,7 @@ program iteration
         prefix, "counts.dat"
 
       ! fortran's fine with 0-sized arrays so this is okay
+      ! even in the detergent case where there are no neighbours
       allocate(neighbours_temp(n_sites * max_neighbours))
       allocate(neighbours(n_sites, max_neighbours))
       if (max_neighbours.ne.0) then
@@ -319,6 +319,7 @@ program iteration
       real(dp) :: rho_q, pq_hop
       do i = 1, n_quenchers
          choice = randint(size(quenchers))
+         ! if this trimer's already a quencher, reroll till it isn't
          do while (is_quencher(choice))
            choice = randint(size(quenchers))
          end do
@@ -502,12 +503,7 @@ program iteration
           write(*, *) "Move function failed on pre-quencher."
         end if
       else if (trim(rate_type).eq."Q") then
-        ! quencher
-        ! assume for now that it can't absorb / emit
-        ! if (process.eq.1) then
-        !   ! generation
-        !   n_q(ind)  = n_q(ind)  + 1
-        !   n_current = n_current + 1
+        ! quencher - assume no absorption
         if (process.eq.(rate_size - 2)) then
           ! hop back to pre-quencher
           n_q(ind)  = n_q(ind)  - 1
@@ -525,11 +521,13 @@ program iteration
         end if
       end if
       if ((n_pq(ind).gt.1).or.(n_q(ind).gt.1)) then
-        write(*, *) "move set pq/q occupancy to > 1!!!", n_i(ind), n_pq(ind), n_q(ind), ind, rate_type, rates, process
+        write(*, *) "move set pq/q occupancy to > 1!!!", n_i(ind),&
+        n_pq(ind), n_q(ind), ind, rate_type, rates, process
         stop
       end if
       if ((n_i(ind).lt.0).or.(n_pq(ind).lt.0).or.(n_q(ind).lt.0)) then
-        write(*, *) "move set occupancy to < 0!!!", n_i(ind), n_pq(ind), n_q(ind), ind, rate_type, rates, process
+        write(*, *) "move set occupancy to < 0!!!", n_i(ind),&
+        n_pq(ind), n_q(ind), ind, rate_type, rates, process
         stop
       end if
     end subroutine move
@@ -537,7 +535,8 @@ program iteration
     subroutine mc_step(dt, n_quenchers)
       implicit none
       character(4) :: rate_type
-      integer(ip) :: n_attempts, nonzero, choice, i, j, k, n_quenchers, ri, trimer
+      integer(ip) :: n_attempts, nonzero, choice,&
+        i, j, k, n_quenchers, ri, trimer
       logical(C_Bool) :: pop_loss(4)
       real(dp) :: dt, rho_q, rand
       real(dp), dimension(rate_size) :: rates, probs

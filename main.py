@@ -90,51 +90,43 @@ per trimer will also need to be changed.
 
         count_file = "{}/{}counts.dat".format(path, file_prefix)
         if os.path.isfile(count_file):
-            try:
-                (mono_d, mono_fit) = multi_fit.do_fit(count_file,
-                        [1/rates.g_pool],
-                        exp=False,
-                        pw = args.pulsewidth / 1000.,
-                        pm = args.pulse_mean / 1000.,
-                        time_unit = 'ps')
-            except RuntimeError:
-                print("monoexponential fit didn't work")
-                mono_d = {}
-                mono_fit = np.empty(1)
-            try:
-                (bi_d, bi_fit) = multi_fit.do_fit(count_file,
-                        [1/rates.k_ann, 1/rates.g_pool],
-                        exp=False,
-                        pw = args.pulsewidth / 1000.,
-                        pm = args.pulse_mean / 1000.,
-                        time_unit = 'ps')
-            except RuntimeError:
-                print("biexponential fit didn't work")
-                bi_d = {}
-                bi_fit = np.empty(1)
-            df = pd.DataFrame([mono_d, bi_d])
-            print("Mono fit: fit_info = ", mono_d)
-            print("Bi fit: fit_info = ", bi_d)
-            tau_init = [1./rates.g_pool, 1./rates.k_ann, 500.]
+            n_max = 2
+            tau_init = [0.001/rates.g_pool, 0.001/rates.k_ann, 0.5]
+            dicts = []
+            fits = []
+            for i in range(1, n_max + 1):
+                try:
+                    (d, fit) = multi_fit.do_fit(count_file,
+                            tau_init[:i],
+                            exp=False,
+                            pw = args.pulsewidth / 1000.,
+                            pm = args.pulse_mean / 1000.,
+                            time_unit = 'ps')
+                except RuntimeError:
+                    print("n_exp = {:2d} fit didn't work".format(i))
+                    d = {}
+                    fit = np.empty(1)
+                dicts.append(d)
+                fits.append(fit)
+                print("n_exp = {:2d}: fit_info = ".format(i), d)
+            df = pd.DataFrame(dicts)
             if args.fit_only:
                 fig, ax = plt.subplots(figsize=(8,6))
                 ax.set_ylabel("Counts")
                 ax.set_xlabel("Time (ns)")
                 ax.set_xlim([-1., 10.])
-                ax.plot(mono_fit[:, 0], mono_fit[:, 1], ls='--', marker='o',
+                ax.plot(fits[0][:, 0], fits[0][:, 1], ls='--', marker='o',
                         lw=3., label='decays')
-                if mono_fit.size > 0:
-                    ax.plot(mono_fit[:, 0], mono_fit[:, 2], lw=2.5, label='mono')
-                if bi_fit.size > 0:
-                    ax.plot(bi_fit[:, 0], bi_fit[:, 2], lw=2.5, label='bi')
+                for i, fit in enumerate(fits):
+                    if fit.size > 1:
+                        ax.plot(fit[:, 0], fit[:, 2], lw=2.5,
+                                label='n = {:2d}'.format(i + 1))
                 fig.tight_layout()
                 plt.grid()
                 plt.legend()
                 plt.show()
-                best_n = input("Best fit - 1 or 2 exponentials?")
+                best_n = input("Best fit - how many exponentials?")
                 df["best_fit"] = best_n
             df.to_csv("{}/{}fit_info.csv".format(path, file_prefix))
-    # subprocess.run(['python', 'plot_tau.py', '{}'.format(path),
-    #     '{:3.2f}'.format(args.rho_q)], check=True)
     end_time = time.monotonic()
     print("Total time elapsed: {}".format((end_time - start_time)))

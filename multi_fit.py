@@ -4,6 +4,7 @@ import os
 import sympy
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import pandas as pd
 
 def Convol(x, h):
@@ -311,6 +312,24 @@ def do_fit(filename, tau_init, irf_file=None,
     axs[1].set_ylabel("Counts")
     axs[1].set_xlabel("Time (ns)")
     axs[1].set_xlim([-1., 10.])
+    fig.tight_layout()
+    plt.savefig(plot_file)
+    plt.close()
+    # now just the linear plot for paper
+    fig, ax = plt.subplots(figsize=(12,8))
+    mpl.rcParams['font.size'] = 36
+    # plt.suptitle("{}: ".format(fluence) + r'$ \tau_{\text{amp.}} = $'
+    #         + "{:4.2f} +/- {:4.2f} ns".format(d["tau_amp"], d["tau_amp_err"]))
+    ax.plot(xyn[:, 0], xyn[:, 2], ls='--', marker='o', label='decays')
+    ax.plot(xyn[:, 0], bf, label='fit')
+    plot_file = "{}/{}_reconv_paper_{}.pdf".format(path, fluence, str(n_exp))
+    ax.legend(fontsize=26)
+    ax.grid(True)
+    ax.set_ylim([0., 1.1])
+    ax.set_ylabel("Counts (normalised)", fontsize=32)
+    ax.set_xlabel("Time (ns)", fontsize=32)
+    ax.set_xlim([-1., 10.])
+    ax.tick_params(labelsize=32)
     fig.tight_layout()
     plt.savefig(plot_file)
     plt.close()

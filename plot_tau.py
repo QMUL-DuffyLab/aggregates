@@ -2,8 +2,8 @@ import sys
 import os
 import numpy as np
 import pandas as pd
-import numpy.ma as ma
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import defaults
 
 file_path = sys.argv[1]
@@ -34,6 +34,8 @@ for i, f in enumerate(files):
 # put back in a dict to make the following more readable
 d = dict(zip(k, arr))
 
+fig, ax = plt.subplots(figsize=(12, 8))
+plt.rcParams.update({'font.size': 36})
 # plot tau_amp and the actual time constants with errors
 plt.errorbar(npt, d["tau_int"], yerr=d["tau_int_err"],
     label=r'$ \left< \tau_{\text{int.}} \right> $',
@@ -56,10 +58,12 @@ plt.scatter(npt, d["tau2"], s=d["a2"] * 500., c='#888888')
 #             label='LHCII w/ lipid bilayer', color='k', lw=4.0,
 #             elinewidth=0.5, capsize=2.0, marker='^', ms=10.0)
 
-plt.grid()
-plt.legend()
-ax.set_xlabel(r'Excitations per trimer $ \rho_{\text{exc.}} $')
-ax.set_ylabel(r'$ \left< \tau \right> (\text{ns}) $')
+plt.legend(fontsize=26)
+ax.set_xlabel(r'Excitations per trimer $ \rho_{\text{exc.}} $', fontsize=32)
+ax.set_ylabel(r'$ \left< \tau \right> (\text{ns}) $', fontsize=32)
+ax.tick_params(labelsize=32)
 ax.minorticks_off()
 plt.minorticks_off()
+fig.tight_layout()
+plt.grid()
 fig.savefig("{}/{}_{}_tau_scatter.pdf".format(file_path, rho_q, fwhm))

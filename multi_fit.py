@@ -200,17 +200,6 @@ def do_fit(filename, tau_init, irf_file=None,
     print(tail_pcov)
     tail_err = np.sqrt(np.diag(tail_pcov))
     print("errors:", tail_err)
-    fig, ax = plt.subplots(figsize=(12,8))
-    plt.plot(x, y, ls='--', label='data')
-    plt.plot(x, exp_model(x, *tail_popt), label='fit')
-    plt.legend()
-    plt.title("Tail best fit - fluence = {}".format(fluence))
-    # ax.set_yscale('log')
-    ax.set_ylim([1e-5, 1.5])
-    ax.set_xlim([-1., np.max(x) * 1.1])
-    plt.savefig("{}/{}_tail_fit_{}.pdf".format(path, fluence, n_exp))
-    # plt.show()
-    plt.close()
     
     best_t = list(tail_popt[len(tail_popt)//2:])
     print("Time constant(s) from tail fit = ", best_t)
@@ -241,6 +230,22 @@ def do_fit(filename, tau_init, irf_file=None,
                 np.exp(-(xyn[:, 0] - pm)**2 / (np.sqrt(2.) * sig)**2))
         irf_norm = irf_gen / np.max(irf_gen)
     
+    # fit tail with IRF
+    fig, ax = plt.subplots(figsize=(8,6))
+    plt.plot(x, y, ls='--', label='Data')
+    plt.plot(x, exp_model(x, *tail_popt), label='Fit')
+    plt.plot(x, irf_norm, label='IRF')
+    plt.legend()
+    # plt.title("Tail best fit - fluence = {}".format(fluence))
+    plt.grid()
+    # ax.set_yscale('log')
+    ax.set_ylim([1e-5, 1.5])
+    ax.set_xlim([-1., np.max(x) * 1.1])
+    plt.savefig("{}/{}_tail_fit_{}.pdf".format(path, fluence, n_exp))
+    fig.tight_layout()
+    # plt.show()
+    plt.close()
+
     """
     now we need to do something horrible!
     generate an empty array with the same length as x and irf, and fill

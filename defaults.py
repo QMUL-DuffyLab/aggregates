@@ -4,7 +4,7 @@ from kmc import Rates
 protein_r = 5. # radius of a protein - only relevant for packing of real aggregates
 n_trimers = 200 # (approximate) number of trimers to place in lattice
 max_count = 10000 # maximum count to reach in histogram
-binwidth = 50. # histogram bin width
+binwidth = 10. # histogram bin width
 
 # pulse stuff
 """
@@ -29,8 +29,9 @@ fluences_10Mhz = [1.79E13, 4.48E13, 8.96E13, 1.34E14,
 # - by doing this we get average excitations per trimer of 0.05, 0.10, etc
 fluences = [x / xsec for x in [0.05, 0.10, 0.25, 0.50,
             0.75, 1.0, 1.25, 1.5, 2., 3., 4., 5.]]
-pulse_fwhm = 90. # fwhm of pulse in ps
-pulse_mu = 350. # peak time of pulse in ps
+fluences = [x / xsec for x in [0.05, 5.]]
+pulse_fwhm = 50. # fwhm of pulse in ps
+pulse_mu = 200. # peak time of pulse in ps
 
 # rate stuff
 hop = 25. # hopping rate between trimers

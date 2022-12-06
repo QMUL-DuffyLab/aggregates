@@ -3,27 +3,10 @@ from numba.experimental import jitclass
 import numpy as np
 from kmc import Pulse, Rates, Iteration
 
-@jitclass([('start', int32), ('end', int32), ('float', float64)])
-class Process(start, end, base_rate, emissive):
-    name: str
-    start: int
-    end: int
-    base_rate: float
-    emissive: bool
-
-def annihilation(ni, i, base_rate):
-    n = ni[0, i] + ni[1, i]
-    return (n * (n - 1) * base_rate) / 2.
-
-def stimulated_emission(ni, i, pulse, t, dt):
-    return pulse.ft[int(t / dt)] * (ni[0, i] + ni[1, i]) / 24.0
-
-def absorption(ni, i, pulse, t, dt):
-    n = ni[0, i] + ni[1, i]
-    return (pulse.ft[int(t / dt)] / 24.0) * (24.0 - n)
-
 @njit
 def rate_calc(ind, t, state, rates):
+    # should use base_rates here - will have
+    # correct rates for neighbours for each site
     r = rates.copy()
     if (state == "A"):
         n = ni[0, ind]
@@ -56,8 +39,6 @@ def rate_calc(ind, t, state, rates):
     r[-1] = r[-1] * af
     return r
 
- 
-
 @njit
 def hop_entropy(n_max, k_hop):
     ds = np.empty((n_max + 1, n_max + 1))
@@ -79,19 +60,8 @@ def allocate_quenchers(rng, rho_q, n):
         while is_q[c]:
             c = rng.randint(n_q)
         quenchers[i] = c
-    return quenchers
-
-# processes
-
-def add(ni, i):
-    ni[i] = ni[i] + 1
-
-def remove(ni, i):
-    ni[i] = ni[i] - 1
-
-def hop(ni, i, j):
-    ni[i] = ni[i] - 1
-    ni[j] = ni[j] + 1
-
-def hop_pq(ni, npq, i):
-
+    for i in range(n):
+        if not is_q[i]:
+            # zero the A->P rate
+            pass
+    return (is_q, quenchers)

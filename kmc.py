@@ -21,11 +21,10 @@ class Rates():
     of a few nanoseconds, whereas the decay of a carotenoid quencher might
     be 10-15ps. Give these in ps!
     emissive is a bool list I use to track which of the decays are emissive.
-    Not currently useful but might be.
     '''
     def __init__(self, tau_hop, tau_pool, tau_pq, tau_q,
             t_po_pq, t_pq_po, t_pq_q, t_q_pq, t_annihilation,
-            emissive, decay_on_pq, ann_on_pq):
+            emissive):
         self.tau_hop        = tau_hop
         self.hop            = 1. / tau_hop
         self.g_pool         = 1. / tau_pool
@@ -37,8 +36,6 @@ class Rates():
         self.k_q_pq         = 1. / t_q_pq
         self.k_ann          = 1. / t_annihilation
         self.emissive       = emissive
-        self.decay_on_pq    = decay_on_pq
-        self.ann_on_pq      = ann_on_pq
     def print(self):
         print("Rates - all given in ps^{-1}:")
         print("k_hop = {:6.4f}".format(self.hop))

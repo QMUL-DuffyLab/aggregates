@@ -33,27 +33,33 @@ fluences = [x / xsec for x in [0.05, 5.]]
 pulse_fwhm = 50. # fwhm of pulse in ps
 pulse_mu = 200. # peak time of pulse in ps
 
-# rate stuff
+# rates - give in picoseconds! the Rates class takes the reciprocal
 hop = 25. # hopping rate between trimers
-chl_decay = 3600. # decay of a chlorophyll
-q_decay = 10. # decay of a quencher (carotenoid)
+g_a = 3600. # decay of a chlorophyll
+g_p = g_a # pre-quencher is also a chlorophyll
+g_q = 10. # decay of a quencher (carotenoid)
 ann = 16. # annihilation rate for excitons on same trimer
+tau_p_a = 1. # transfer rate from pre-quencher to antenna
 omega = 5. # entropy ratio - \tau_{pool->pq} / \tau_{pq->pool}
+tau_a_p = omega * tau_p_a
+# which decays are emissive: [ann, antenna, pre-quencher, quencher]
+# this could change between models! but in our case it does not
+emissive = [False, True, True, False]
 rates_dict = {
- 'detergent': Rates(np.inf, chl_decay, chl_decay, q_decay, np.inf, np.inf,
-     np.inf, np.inf, ann, [False, True, True, False], True, True),
- 'hop_only': Rates(hop, chl_decay, chl_decay, q_decay, np.inf, np.inf,
-     np.inf, np.inf, ann, [False, True, True, False], True, True),
- 'slow_entropic': Rates(hop, chl_decay, chl_decay, q_decay,
-     omega, 1.0, 100., np.inf, ann, [False, True, True, False], True, True),
- 'medium_entropic': Rates(hop, chl_decay, chl_decay, q_decay,
-     omega, 1.0, hop, np.inf, ann, [False, True, True, False], True, True),
- 'fast_entropic': Rates(hop, chl_decay, chl_decay, q_decay,
-     omega, 1.0, 1.0, np.inf, ann, [False, True, True, False], True, True),
- 'slow_non-entropic': Rates(hop, chl_decay, chl_decay, q_decay,
-     1.0, 1.0, 100., np.inf, ann, [False, True, True, False], True, True),
- 'medium_non-entropic': Rates(hop, chl_decay, chl_decay, q_decay,
-     1.0, 1.0, hop, np.inf, ann, [False, True, True, False], True, True),
- 'fast_non-entropic': Rates(hop, chl_decay, chl_decay, q_decay,
-     1.0, 1.0, 1.0, np.inf, ann, [False, True, True, False], True, True),
+ 'detergent': Rates(np.inf, g_a, g_p, g_q, np.inf, np.inf,
+     np.inf, np.inf, ann, emissive),
+ 'hop_only': Rates(hop, g_a, g_p,  g_q, np.inf, np.inf,
+     np.inf, np.inf, ann, emissive),
+ 'slow_entropic': Rates(hop, g_a, g_p, g_q,
+     tau_a_p, tau_p_a, 100., np.inf, ann, emissive),
+ 'medium_entropic': Rates(hop, g_a, g_p, g_q,
+     tau_a_p, tau_p_a, hop, np.inf, ann, emissive),
+ 'fast_entropic': Rates(hop, g_a, g_p, g_q,
+     tau_a_p, tau_p_a, 1.0, np.inf, ann, emissive),
+ 'slow_non-entropic': Rates(hop, g_a, g_p, g_q,
+     tau_p_a, tau_p_a, 100., np.inf, ann, emissive),
+ 'medium_non-entropic': Rates(hop, g_a, g_p, g_q,
+     tau_p_a, tau_p_a, hop, np.inf, ann, emissive),
+ 'fast_non-entropic': Rates(hop, g_a, g_p, g_q,
+     tau_p_a, tau_p_a, 1.0, np.inf, ann, emissive),
  }

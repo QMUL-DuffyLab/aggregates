@@ -10,7 +10,7 @@ from lmfit import Model
 import multi_fit
 import defaults
 from trimer import check_neighbours, Aggregate, theoretical_aggregate
-from kmc import Pulse, Rates, Iteration
+from kmc import Pulse, Rates, Setup
 
 if __name__ == "__main__":
     start_time = time.monotonic()
@@ -85,12 +85,12 @@ per trimer will also need to be changed.
             # note - second parameter here is the nn cutoff
             agg = theoretical_aggregate(args.protein_radius,
                     2.01 * args.protein_radius, args.lattice, args.n_trimers)
-            it = Iteration(agg, rates, pulse, args.rho_q,
+            sim_setup = Setup(agg, rates, pulse, args.rho_q,
                     path, file_prefix, n_per_t, args.binwidth, args.max_count,
                     verbose=verbose)
             if not args.files_only:
                 subprocess.run(['mpirun',
-                    '-np', '4', './agg_mc', it.params_file], check=True)
+                    '-np', '4', './agg_mc', sim_setup.params_file], check=True)
                 # non-MPI run
                 # subprocess.run(['./f_iter', it.params_file], check=True)
 

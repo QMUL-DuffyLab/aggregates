@@ -1,4 +1,4 @@
-from numba import jit, njit, int32, float64, boolean, void
+from numba import jit, njit, prange, vectorize, int32, float64, boolean, void
 from numba.experimental import jitclass
 import numpy as np
 from kmc import Pulse, Rates, Iteration
@@ -8,7 +8,11 @@ n_states = 3
 n_current = 0
 loss = [False, False, False, False, False]
 ni = np.zeros((n_sites, n_states))
+n_max = [14, 1, 1]
+dt = 1.0
 
+# in principle i think we could parallelise the inner loop here but
+# we only need to calculate it once per simulation so i haven't bothered
 @njit
 def hop_entropy(n_max, k_hop):
     ds = np.empty((n_max + 1, n_max + 1))
@@ -72,6 +76,14 @@ def rate_calc(ind, t, state, rates):
     af = (n * (n - 1)) / 2.0
     r[-1] = r[-1] * af
     return r
+
+@njit(float64[:](float64[:], float64), parallel=True)
+def prob_calc(rates, dt):
+    p = np.zeros_like(rates)
+    for i in range(np.size(rates)):
+        p[i] = rates[i] * np.exp(-1.0 * rates[i] * dt)
+    return p
+
 
 @njit
 def move(ind, process, state, loss):
@@ -157,14 +169,14 @@ def move(ind, process, state, loss):
 @njit(void(int32, int32))
 def add(i, s):
     global n_current
-    ni[i, s] = ni[i, s] + 1
-    n_current = n_current + 1
+    ni[i, s]  += 1
+    n_current += 1
 
 @njit(void(int32, int32))
 def remove(i, s):
     global n_current
-    ni[i, s] = ni[i, s] - 1
-    n_current = n_current - 1
+    ni[i, s]  -= 1
+    n_current -= 1
 
 @njit(void(int32, int32, int32, int32))
 def transfer(i, s_i, f, s_f):
@@ -178,29 +190,30 @@ def rate_calc(i, s, t, rates):
     # correct rates for neighbours for each site
     r = rates.copy()
     n = ni[i, s]
-    na = 0.0
     if (t < np.size(pulse) * dt):
-        if ((state == 0 and n < n_max)
-                or (state == 1 and n < 1)):
+        if (s != 2 and n < n_max[s]):
             ft = pulse.ft[int(t/dt)]
             r[0] = (ft / 24.0) * (24.0 - n)
             r[1] = (ft / 24.0) * (n)
-    if (is_q[ind] and s < 2):
+    if (s < 2):
         na = ni[i, 0] + ni[i, 1]
+    else:
+        na = 0.0
     af = (na * (na - 1)) / 2.0
     r[2] = r[2] * af
 
-    r[3] = r[3] * n
-    if (is_q[ind]):
-        if (state != "P" and ni[ind, 1] > 0):
-            r[-3] = 0.0
-        elif (state == "P" and ni[ind, 2] > 0):
-            r[-3] = 0.0
+    r[3:] = r[3:] * n
+    if (s != n_states - 1):
+        if (ni[i, s + 1] == n_max[s + 1]):
+            r[4] = 0.0
+    if (s != 0):
+        if (ni[i, s - 1] == n_max[s - 1]):
+            r[5] = 0.0
     if (s == 0):
         for i in range(6, np.size(rates)):
             nn = neighbours[i, i - 6]
             # total population on this neighbour is A + P
-            r[i] = r[i] * n * ds[n, (ni[nn, 0] + ni[nn, 1])]
+            r[i] = r[i] * ds[n, (ni[nn, 0] + ni[nn, 1])]
     return r
 
 @njit(void(int32, int32, int32, boolean[:]))
@@ -224,3 +237,45 @@ def move(p, i, s, loss):
         if (s != 0):
             raise ValueError("process %d called for state %d" % p, s)
         transfer(i, 0, neighbours[i, x - 6], 0) # hop
+
+@njit
+def mc_step(rng, dt, n_q):
+    n_attempts = n_sites + (2 * n_q)
+    for i in range(n_attempts):
+        loss = [False, False, False, False, False]
+        ri = rng.integers(n_attempts)
+        s = ri // n_sites + ri // (n_sites + n_q)
+        if (ri < n_sites):
+            ind = ri
+            s = 0
+        if (n_sites <= ri < n_sites + n_q):
+            ind = ri - n_sites
+            s = 1
+        else:
+            ind = ri - (n_sites + n_q)
+            s = 2
+
+        rates = rate_calc(ind, s, t, base_rates)
+        if not np.any(rates):
+            continue
+        nz = np.nonzero(rates)
+        for j in range(nz):
+            if not np.any(rates):
+                break # break out of trying to do stuff on this site
+            c = rng.integers(nz)
+            ri = 0
+            for k in range(np.size(rates)):
+                if (rates[k] > 0.0):
+                    ri += 1
+                if ri == c:
+                    c = k
+                    break
+
+        r = rng.random()
+        if (r < rates[c] * np.exp(-1.0 * rates[c] * dt)):
+            move(c, ind, s, loss)
+            rates = rate_calc(ind, s, t, base_rates)
+        if np.any(loss):
+            for j in range(np.size(loss)):
+                if (loss[j]):
+                    counts[j, np.floor(t / binwidth)] += 1

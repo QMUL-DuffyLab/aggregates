@@ -97,7 +97,7 @@ per trimer will also need to be changed.
         count_file = "{}/{}counts.dat".format(path, file_prefix)
         if os.path.isfile(count_file):
             n_max = 2
-            tau_init = [0.001/rates.g_pool, 0.001/rates.k_ann, 0.5]
+            tau_init = [0.001/rates.g_a, 0.001/rates.k_ann, 0.5]
             dicts = []
             fits = []
             for i in range(1, n_max + 1):

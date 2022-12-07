@@ -4,7 +4,7 @@ from kmc import Rates
 protein_r = 5. # radius of a protein - only relevant for packing of real aggregates
 n_trimers = 200 # (approximate) number of trimers to place in lattice
 max_count = 10000 # maximum count to reach in histogram
-binwidth = 10. # histogram bin width
+binwidth = 25. # histogram bin width
 
 # pulse stuff
 """

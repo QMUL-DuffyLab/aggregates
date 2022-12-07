@@ -31,11 +31,13 @@ Quenching model to use. Options are:
 'slow_non-entropic', 'medium_non-entropic', 'fast_non-entropic',
 See defaults.py for specific numbers''')
     # optional arguments
-    parser.add_argument('-pr', '--protein_radius', type=float,
+    parser.add_argument('-r', '--protein_radius', type=float,
             default=defaults.protein_r,
             help="Radius of the protein (nm) - only relevant when packing real aggregates")
     parser.add_argument('-n', '--n_trimers', type=int, default=defaults.n_trimers,
             help="Number of trimers (approximate) to put in the aggregate")
+    parser.add_argument('-pr', '--prefix', type=str, default="",
+            help="Optional folder prefix")
     parser.add_argument('-mc', '--max_count', type=int, default=defaults.max_count,
             help="Maximum count for a given bin in the histogram")
     parser.add_argument('-bw', '--binwidth', type=float, default=defaults.binwidth,
@@ -61,7 +63,11 @@ per trimer will also need to be changed.
     # make sure the fortran is compiled and up to date
     subprocess.run(['mpifort',
         '-O2', 'iteration.f90', '-o', './agg_mc'], check=True)
-    path = "out/{}/{}".format(args.model, args.lattice)
+    if len(args.prefix) > 0:
+        path = "out/{}/{}/{}".format(args.model, args.lattice,
+                args.prefix)
+    else:
+        path = "out/{}/{}".format(args.model, args.lattice)
     os.makedirs(path, exist_ok=True)
     rates = defaults.rates_dict[args.model]
     rates.print()

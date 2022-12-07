@@ -4,7 +4,7 @@ from kmc import Rates
 protein_r = 5. # radius of a protein - only relevant for packing of real aggregates
 n_trimers = 200 # (approximate) number of trimers to place in lattice
 max_count = 10000 # maximum count to reach in histogram
-binwidth = 10. # histogram bin width
+binwidth = 25. # histogram bin width
 
 # pulse stuff
 """
@@ -35,7 +35,7 @@ pulse_mu = 200. # peak time of pulse in ps
 
 # rate stuff
 hop = 25. # hopping rate between trimers
-chl_decay = 3600. # decay of a chlorophyll
+chl_decay = 2200. # decay of a chlorophyll
 q_decay = 10. # decay of a quencher (carotenoid)
 ann = 16. # annihilation rate for excitons on same trimer
 omega = 5. # entropy ratio - \tau_{pool->pq} / \tau_{pq->pool}

@@ -97,7 +97,7 @@ def move(ind, process, state, loss):
             # NB: add a loss column for SE?
         elif (1 < process < (rate_size - 4)):
             # hop to neighbouring A
-            transfer(ind, 0, neighbours[ind, i - 2], 0)
+            transfer(ind, 0, neighbours[ind, process - 2], 0)
         elif (process == rate_size - 4):
             pass
         elif (process == rate_size - 3):
@@ -195,6 +195,7 @@ def rate_calc(i, s, t, rates):
             ft = pulse.ft[int(t/dt)]
             r[0] = (ft / 24.0) * (24.0 - n)
             r[1] = (ft / 24.0) * (n)
+    # annihilation can occur between A and P but not on Q
     if (s < 2):
         na = ni[i, 0] + ni[i, 1]
     else:
@@ -219,7 +220,7 @@ def rate_calc(i, s, t, rates):
 @njit(void(int32, int32, int32, boolean[:]))
 def move(p, i, s, loss):
     if (p == 0):
-        add(i, s)
+        add(i, s) # absorption
     elif (p == 1):
         remove(i, s) # stimulated emission
         loss[0] = True
@@ -234,12 +235,57 @@ def move(p, i, s, loss):
     elif (p == 5):
         transfer(i, s, i, s - 1) # backward transfer
     else:
+         # hop to adjacent site should only happen from state 0 (A)
         if (s != 0):
             raise ValueError("process %d called for state %d" % p, s)
-        transfer(i, 0, neighbours[i, x - 6], 0) # hop
+        transfer(i, 0, neighbours[i, p - 6], 0) # hop to adjacent site
 
 @njit
-def mc_step(rng, dt, n_q):
+def choose_nonzero(rates, rng):
+    '''
+    randomly choose one of the processes with a nonzero rate
+    and return its index in rates. if there's none return -1
+    '''
+    nz = np.nonzero(rates)
+    if (nz == 0):
+        return -1
+    for j in range(nz):
+        c = rng.integers(nz)
+        ri = 0
+        for k in range(np.size(rates)):
+            if (rates[k] > 0.0):
+                ri += 1
+            if ri == c:
+                c = k
+                break
+    return c
+
+@njit(parallel=True)
+def update_all_rates(base_rates):
+    '''
+    IN PROGRESS
+    my thinking here is to parallelise this and run it at the start
+    of each MC sweep. also include a bool array `move_possible`.
+    update the current rates on every site and if there are nonzero
+    rates set `move_possible[i] = True`. then we can only attempt moves
+    on sites where there is a possible move; this should speed things up
+    (note that this should just use rate_calc internally; we still need
+    that function to update the rates after a successful move)
+    '''
+    pass
+
+@njit
+def mc_step(t, base_rates, rng, dt, n_q):
+    '''
+    perform one Monte Carlo sweep at a time.
+    in our case we have n_sites antenna/pool sites plus
+    n_quenchers P and Q states, so we attempt
+    (n_sites + 2 * n_q) moves, picking each site once *on average*.
+    once we choose a site, check if there are any possible processes
+    and then attempt to do each possible process once on average in
+    the same way. if there are any losses of population we take the
+    current time and bin it into a histogram.
+    '''
     n_attempts = n_sites + (2 * n_q)
     for i in range(n_attempts):
         loss = [False, False, False, False, False]
@@ -256,20 +302,15 @@ def mc_step(rng, dt, n_q):
             s = 2
 
         rates = rate_calc(ind, s, t, base_rates)
-        if not np.any(rates):
-            continue
+        # this needs some work. actually in general it's probably
+        # possible to make the code more efficient by checking whether
+        # the pulse is on (or any generation rates) and if not then
+        # only attempt moves on sites which have excitons on them
         nz = np.nonzero(rates)
         for j in range(nz):
-            if not np.any(rates):
-                break # break out of trying to do stuff on this site
-            c = rng.integers(nz)
-            ri = 0
-            for k in range(np.size(rates)):
-                if (rates[k] > 0.0):
-                    ri += 1
-                if ri == c:
-                    c = k
-                    break
+            c = choose_nonzero(rates, rng)
+            if (c == -1):
+                continue
 
         r = rng.random()
         if (r < rates[c] * np.exp(-1.0 * rates[c] * dt)):

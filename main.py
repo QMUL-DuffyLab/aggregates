@@ -10,7 +10,7 @@ from lmfit import Model
 import multi_fit
 import defaults
 from trimer import check_neighbours, Aggregate, theoretical_aggregate
-from kmc import Pulse, Rates, Iteration
+from rates import Pulse, Rates, Iteration
 
 if __name__ == "__main__":
     start_time = time.monotonic()
@@ -53,7 +53,7 @@ Fluence(s) to use for the pulse (photons per pulse per cm^2).
 Note that we consider a 485nm laser here; if this changes, the cross-section
 per trimer will also need to be changed.
 ''')
-    parser.add_argument('--fit_only', action=argparse.BooleanOptionalAction,
+    parser.add_argument('--fit', action=argparse.BooleanOptionalAction,
             help="Pass to disable running the code and just re-fit the data")
     parser.add_argument('--files_only', action=argparse.BooleanOptionalAction,
             help="Pass to disable the running and the fits and just generate input files")
@@ -73,6 +73,8 @@ per trimer will also need to be changed.
     rates.print()
     pulse = Pulse(fwhm=args.pulsewidth, mu=args.pulse_mean)
     fluences = args.fluences
+    # next line - use Lekshmi's 1MHZ experimental fluences
+    # fluences = defaults.fluences_1Mhz
     for fluence in fluences:
         n_per_t = defaults.xsec * fluence
         os.makedirs(path, exist_ok=True)
@@ -80,7 +82,7 @@ per trimer will also need to be changed.
                 args.rho_q, n_per_t, args.pulsewidth)
         print("Prefix = {}".format(file_prefix))
 
-        if not args.fit_only:
+        if not args.fit:
             verbose = False
             # note - second parameter here is the nn cutoff
             agg = theoretical_aggregate(args.protein_radius,
@@ -95,9 +97,10 @@ per trimer will also need to be changed.
                 # subprocess.run(['./f_iter', it.params_file], check=True)
 
         count_file = "{}/{}counts.dat".format(path, file_prefix)
+        # fitting stuff
         if os.path.isfile(count_file):
-            n_max = 2
-            tau_init = [0.001/rates.g_pool, 0.001/rates.k_ann, 0.5]
+            n_max = defaults.n_max
+            tau_init = defaults.tau_init
             dicts = []
             fits = []
             for i in range(1, n_max + 1):
@@ -116,7 +119,9 @@ per trimer will also need to be changed.
                 fits.append(fit)
                 print("n_exp = {:2d}: fit_info = ".format(i), d)
             df = pd.DataFrame(dicts)
-            if args.fit_only:
+            # once a sweep of fluences is run, run again with option
+            # --fit_only; this lets you pick the best visual fits
+            if args.fit:
                 fig, ax = plt.subplots(figsize=(8,6))
                 ax.set_ylabel("Counts")
                 ax.set_xlabel("Time (ns)")

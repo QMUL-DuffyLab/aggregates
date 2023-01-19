@@ -164,7 +164,6 @@ def do_fit(filename, tau_init, irf_file=None,
             count = xyn[i, 1]
         sigma[i] = np.sqrt(1. / count + 1. / max_count)
         
-    
     if exp:
         # check the x-axis is correct here!
         fig, ax = plt.subplots(figsize=(12,8))
@@ -175,7 +174,7 @@ def do_fit(filename, tau_init, irf_file=None,
         plt.legend()
         plt.title("Decay curve - checking the time adjustment")
         ax.set_yscale('log')
-        plt.savefig("{}/{}_decays.pdf".format(path, fluence))
+        plt.savefig("{}/{}_exp_decays.pdf".format(path, fluence))
         plt.close()
 
     n_exp = len(tau_init)

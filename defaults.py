@@ -1,5 +1,5 @@
 import numpy as np
-from kmc import Rates
+from rates import Rates
 
 protein_r = 5. # radius of a protein - only relevant for packing of real aggregates
 n_trimers = 200 # (approximate) number of trimers to place in lattice
@@ -33,27 +33,37 @@ fluences = [x / xsec for x in [0.05, 5.]]
 pulse_fwhm = 50. # fwhm of pulse in ps
 pulse_mu = 200. # peak time of pulse in ps
 
-# rate stuff
+# rate stuff - all in picoseconds
 hop = 25. # hopping rate between trimers
 chl_decay = 2200. # decay of a chlorophyll
+pq_decay = chl_decay # decay of pre-quencher
 q_decay = 10. # decay of a quencher (carotenoid)
 ann = 16. # annihilation rate for excitons on same trimer
 omega = 5. # entropy ratio - \tau_{pool->pq} / \tau_{pq->pool}
 rates_dict = {
- 'detergent': Rates(np.inf, chl_decay, chl_decay, q_decay, np.inf, np.inf,
+ 'detergent': Rates(np.inf, chl_decay, pq_decay, q_decay, np.inf, np.inf,
+     np.inf, np.inf, ann,
+     [False, True, True, False], # emissive decays: [ann, antenna, PQ, Q]
+     True, True),
+ 'hop_only': Rates(hop, chl_decay, pq_decay, q_decay, np.inf, np.inf,
      np.inf, np.inf, ann, [False, True, True, False], True, True),
- 'hop_only': Rates(hop, chl_decay, chl_decay, q_decay, np.inf, np.inf,
-     np.inf, np.inf, ann, [False, True, True, False], True, True),
- 'slow_entropic': Rates(hop, chl_decay, chl_decay, q_decay,
+ 'slow_entropic': Rates(hop, chl_decay, pq_decay, q_decay,
      omega, 1.0, 100., np.inf, ann, [False, True, True, False], True, True),
- 'medium_entropic': Rates(hop, chl_decay, chl_decay, q_decay,
+ 'medium_entropic': Rates(hop, chl_decay, pq_decay, q_decay,
      omega, 1.0, hop, np.inf, ann, [False, True, True, False], True, True),
- 'fast_entropic': Rates(hop, chl_decay, chl_decay, q_decay,
+ 'fast_entropic': Rates(hop, chl_decay, pq_decay, q_decay,
      omega, 1.0, 1.0, np.inf, ann, [False, True, True, False], True, True),
- 'slow_non-entropic': Rates(hop, chl_decay, chl_decay, q_decay,
+ 'slow_non-entropic': Rates(hop, chl_decay, pq_decay, q_decay,
      1.0, 1.0, 100., np.inf, ann, [False, True, True, False], True, True),
- 'medium_non-entropic': Rates(hop, chl_decay, chl_decay, q_decay,
+ 'medium_non-entropic': Rates(hop, chl_decay, pq_decay, q_decay,
      1.0, 1.0, hop, np.inf, ann, [False, True, True, False], True, True),
- 'fast_non-entropic': Rates(hop, chl_decay, chl_decay, q_decay,
+ 'fast_non-entropic': Rates(hop, chl_decay, pq_decay, q_decay,
+     1.0, 1.0, 1.0, np.inf, ann, [False, True, True, False], True, True),
+ 'new_model': Rates(hop, 10000, 1000, q_decay,
      1.0, 1.0, 1.0, np.inf, ann, [False, True, True, False], True, True),
  }
+
+# maximum number of exponentials to fit
+n_max = 2
+# initial guesses for fit components - these are in nanoseconds!
+tau_init = 0.001 * np.array([chl_decay, ann, 500])

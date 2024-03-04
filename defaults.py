@@ -29,7 +29,7 @@ fluences_10Mhz = [1.79E13, 4.48E13, 8.96E13, 1.34E14,
 # - by doing this we get average excitations per trimer of 0.05, 0.10, etc
 fluences = [x / xsec for x in [0.05, 0.10, 0.25, 0.50,
             0.75, 1.0, 1.25, 1.5, 2., 3., 4., 5.]]
-fluences = [x / xsec for x in [0.05, 5.]]
+fluences = [x / xsec for x in [0.05, 2., 5.]]
 pulse_fwhm = 50. # fwhm of pulse in ps
 pulse_mu = 200. # peak time of pulse in ps
 

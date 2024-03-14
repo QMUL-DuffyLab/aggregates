@@ -15,15 +15,17 @@ program iteration
   logical(c_bool) :: emissive(4)
   integer(ip) :: i, j, k, n_sites, max_neighbours, rate_size, n_current,&
     seed_size, max_count, curr_max_count, n_quenchers, mpierr, rank,&
-    num_procs
+    num_procs, n_triplets
   integer(ip), dimension(1) :: maxloc_temp_index
   integer(ip), dimension(4) :: curr_counts
   integer(ip), dimension(4, 1) :: curr_locs
-  integer(ip), dimension(:), allocatable :: n_i, n_pq, n_q, quenchers, seed
+  integer(ip), dimension(:), allocatable :: n_i, n_pq, n_q, n_bt, n_ct,&
+    quenchers, seed
   integer(ip), dimension(:), allocatable :: neighbours_temp
   integer(ip), dimension(:, :), allocatable :: neighbours, counts
   real(dp) :: mu, n_per_t, t, dt, t_pulse, rho_q, xsec,&
-    sigma, fwhm, start_time, end_time, binwidth, max_time
+    sigma, fwhm, start_time, end_time, binwidth, max_time,&
+    dt2, rep_rate, pulse_interval
   real(dp), dimension(:), allocatable :: rates, base_rates, pulse,&
     bins
   real(dp), dimension(:, :), allocatable :: ds
@@ -58,6 +60,9 @@ program iteration
 
   i = 0
   curr_max_count = 0
+  ! triplet arrays should not be zeroed between pulses!
+  n_bt = 0
+  n_ct = 0
   ! keep iterating till we get a decent number of counts
   do while (curr_max_count.lt.max_count)
     seed = (i * num_procs) + rank
@@ -81,6 +86,25 @@ program iteration
       call mc_step(dt, n_quenchers)
     end do
     i = i + 1
+
+    ! second Monte Carlo part
+    ! simulate triplet decay in between pulses
+    ! be careful about units here: e.g. if the triplet decay rate
+    ! is given in (us)^(-1) then everything else must be as well
+    pulse_interval = 1.0_dp / rep_rate
+    t = 0.0_dp
+    do while (t.lt.(pulse_interval))
+      ! call triplet_mc(n_t)
+      t = t + dt2
+    end do
+    ! might also have to randomise their positions here
+    ! before the next iteration starts; if we assume they hop
+    ! at the same rate as singlets, they'll have moved enough
+    ! between pulses that their position's essentially random
+
+    ! alternatively we simulate their movement properly in
+    ! triplet_mc, which will require a hop rate and presumably
+    ! a T-T annihilation rate - I don't think we're doing this tho
 
     if (mod(i, 100).eq.0) then
       ! every 100 iterations, check the current bin counts
@@ -159,6 +183,7 @@ program iteration
       read(20, *) fwhm
       read(20, *) binwidth
       read(20, *) max_count
+      ! read(20, *) rep_rate
       read(20, '(a)') emissive_str
       read(20, '(a)') rates_file
       read(20, '(a)') neighbours_file
@@ -433,9 +458,10 @@ program iteration
           n_i(ind) = n_i(ind) - 1
           n_i(nn)  = n_i(nn)  + 1
         else if (process.eq.rate_size - 3) then
-          ! there will always be an empty rate due to
-          ! there being an extra possible process on pq
-          continue
+          ! transfer to chl triplet state
+          n_i(ind)   = n_i(ind) - 1
+          n_bt(ind)  = n_bt(ind) + 1
+          n_triplets = n_triplets + 1
         else if (process.eq.rate_size - 2) then
           ! hop to pre-quencher
           n_i(ind)  = n_i(ind)  - 1
@@ -518,6 +544,50 @@ program iteration
           n_q(ind)  = n_q(ind)  - 1
           n_current = n_current - 1
           pop_loss(1) = .true.
+        end if
+      else if (trim(rate_type).eq."BT") then
+        if (process.eq.rate_size) then
+          ! B-B annihilation
+          n_bt(ind) = n_bt(ind) - 1
+          n_triplets = n_triplets - 1
+          ! pop_loss() = .true.
+        else if (process.eq.(rate_size - 1)) then
+          ! B-S annihilation
+          n_i(ind) = n_i(ind) - 1
+          n_current = n_current - 1
+          ! pop_loss() = .true.
+        else if (process.eq.(rate_size - 2)) then
+          ! B decay
+          n_bt(ind) = n_bt(ind) - 1
+          n_triplets = n_triplets - 1
+          ! pop_loss() = .true.
+        else if (process.eq.(rate_size - 3)) then
+          ! B decay
+          n_bt(ind) = n_bt(ind) - 1
+          n_ct(ind) = n_ct(ind) + 1
+        else if ((process.gt.2).and.(process.lt.(rate_size - 3))) then
+          ! B hop - unsure if this is allowed or not
+          nn = neighbours(ind, process - 2)
+          n_bt(ind) = n_bt(ind) - 1
+          n_bt(nn) = n_bt(nn) + 1
+        end if
+      else if (trim(rate_type).eq."CT") then
+        if (process.eq.rate_size) then
+          ! C-C annihilation
+          ! unsure if this is allowed
+          n_ct(ind) = n_ct(ind) - 1
+          n_triplets = n_triplets - 1
+          ! pop_loss() = .true.
+        else if (process.eq.(rate_size - 1)) then
+          ! C-S annihilation
+          n_i(ind) = n_i(ind) - 1
+          n_current = n_current - 1
+          ! pop_loss() = .true.
+        else if (process.eq.(rate_size - 2)) then
+          ! C decay
+          n_ct(ind) = n_ct(ind) - 1
+          n_triplets = n_triplets - 1
+          ! pop_loss() = .true.
         end if
       end if
       if ((n_pq(ind).gt.1).or.(n_q(ind).gt.1)) then

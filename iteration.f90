@@ -1,12 +1,12 @@
 program iteration
   use iso_fortran_env
-  use iso_c_binding
+  use iso_c_binding ! don't think this is actually necessary
   use mpi_f08
   implicit none
   integer, parameter :: dp = c_double
   integer, parameter :: short = c_short
   integer, parameter :: ip = c_int
-  real, parameter :: pi = 3.1415926535
+  real, parameter :: pi = 3.1415926535_dp
   integer, parameter :: n_decay_types = 10_ip
 
   character(len=200) :: params_file, rates_file, neighbours_file,&
@@ -16,7 +16,7 @@ program iteration
   logical(c_bool) :: emissive(n_decay_types)
   integer(ip) :: i, j, k, n_sites, max_neighbours, rate_size, n_current,&
     seed_size, max_count, curr_max_count, n_quenchers, mpierr, rank,&
-    num_procs, n_triplets
+    num_procs, n_triplets, n_site_total, n_site_available
   integer(ip), dimension(1) :: maxloc_temp_index
   integer(ip), dimension(n_decay_types) :: curr_counts
   integer(ip), dimension(n_decay_types, 1) :: curr_locs
@@ -67,8 +67,6 @@ program iteration
   ! keep iterating till we get a decent number of counts
   do while (curr_max_count.lt.max_count)
     seed = (i * num_procs) + rank
-    ! write(*, *) "Process ", rank, " has seed ", (i * num_procs) + rank,&
-    !   " for sample ", i
     call random_seed(put=seed)
     is_quencher = .false.
     call allocate_quenchers(n_quenchers, is_quencher, quenchers)
@@ -142,7 +140,9 @@ program iteration
   write(*, *) "Process ", rank, " has max count ",&
     curr_max_count
 
-  ! write(*, *) "]."
+  ! wait until all procs have finished to do the reduction and
+  ! get the final bin counts; then process 0 writes out results
+
   call MPI_Barrier(MPI_COMM_WORLD, mpierr)
 
   if (rank.eq.0) then
@@ -185,24 +185,22 @@ program iteration
       read(20, *) fwhm
       read(20, *) binwidth
       read(20, *) max_count
-      ! read(20, *) rep_rate
+      read(20, *) rep_rate
+      maximum number of excitations per site varies by system
+      read(20, *) n_site_total
+      read(20, *) n_site_available
       read(20, '(a)') emissive_str
       read(20, '(a)') rates_file
       read(20, '(a)') neighbours_file
       read(20, '(a)') prefix_long
       close(20)
 
-      ! check which decays are emissive
+      ! parse string into bool vec - python `True` vs. fortran `.true.`
       read(unit=emissive_str, fmt=*) emissive 
-      ! note - rate_size is set to this because there are a maximum
-      ! of six processes that can happen on any given site that aren't
-      ! hopping (five on a pool chlorophyll, six on pq, four on q).
-      ! hence, max_neighbours + 6 is always a long enough array to hold
-      ! every possible rate on every possible site.
-      ! i actually ignore the possibility of hopping on pq though, so in
-      ! principle this could be reduced by one, but then we'd have to check
-      ! that max_neighbours is > 0 and put the extra pq rate in the middle
-      ! somewhere, and that seems pointless just to save a few bytes
+      ! NB: previously this was max_neighbours + 6 because that was the
+      ! maximum number of possible processes on any given site. this
+      ! may have changed - recalculate with chl and car triplets!
+      ! i think it'll go up by one but need to write them all down
       rate_size = max_neighbours + 6
       write(*, '(a, I4)')     "n_sites    = ", n_sites
       write(*, '(a, I1)')     "max neigh  = ", max_neighbours
@@ -212,12 +210,15 @@ program iteration
       write(*, '(a, F8.3)')   "fwhm       = ", fwhm
       write(*, '(a, F8.3)')   "binwidth   = ", binwidth
       write(*, '(a, I8)')     "max count  = ", max_count
+      write(*, '(a, ES10.3)') "rep_rate    = ", rep_rate
+      write(*, '(a, I4)')     "n_max_site  = ", n_max_site
+      write(*, '(a, I4)')     "n_max_avail = ", n_max_available
       write(*, '(a, a)')      "rate file  = ", rates_file
       write(*, '(a, a)')      "neigh file = ", neighbours_file
 
+      ! sort out prefix for output filename
       i = scan(rates_file, "/\", .true.)
       file_path = rates_file(:i)
-      ! write(prefix_long, '(F4.2, a, ES8.2, a)') rho_q, "_", fluence, "_"
       prefix = trim(adjustl(prefix_long))
       write(*, *) "File path = ", file_path
       write(*, *) "Prefix = ", prefix
@@ -233,13 +234,19 @@ program iteration
         read(20, *) neighbours_temp
         close(20)
       end if
+
       neighbours = reshape(neighbours_temp, (/n_sites, max_neighbours/))
       allocate(base_rates((n_sites + 2) * rate_size))
       allocate(rates(rate_size))
+
       allocate(n_i(n_sites))
       allocate(n_pq(n_sites))
       allocate(n_q(n_sites))
 
+      allocate(n_bt(n_sites))
+      allocate(n_ct(n_sites))
+
+      ! read in big set of rates - also very ugly imo
       open(file=rates_file, unit=20)
       read(20, *) base_rates
       close(20)
@@ -280,22 +287,24 @@ program iteration
       deallocate(prefix)
     end subroutine deallocations
 
-    function entropic_penalties(hopping_rate) result (ds)
+    function entropic_penalties(hopping_rate, n_max_available) result (ds)
       implicit none
-      integer :: i, j, nmax
+      integer :: i, j, n_max_available
       real(dp), dimension(:, :), allocatable :: ds
-      real(dp) :: hopping_rate
-      ! sum of boltzmann factors for average exciton energies
-      ! over one monomer is 4.7; set this to 5, then multiply by 3 
-      nmax = 15
-      allocate(ds(0:nmax, 0:nmax))
+      real(dp) :: hopping_rate, nmf
+
+      allocate(ds(0:n_max_available, 0:n_max_available))
+
+      ! n_max_available is the number of thermally accessible states
+      ! see comment in get_rates below for details
+      nmf = 1.0_dp * n_max_available
       ds = 0.0
-      do i = 0, nmax
-        do j = 0, nmax
+      do i = 0, n_max_available
+        do j = 0, n_max_available
           ! entropy factor for n_donor = i, n_acceptor = j
           if (i.le.j) then
             ds(i, j) = hopping_rate * &
-                     ((i * (15.0 - j)) / ((j + 1) * (15.0 - i + 1))) 
+                     ((i * (nmf - j)) / ((j + 1) * (nmf - i + 1))) 
           else
             ds(i, j) = hopping_rate
           end if
@@ -369,14 +378,22 @@ program iteration
       end do
     end subroutine fix_base_rates
 
-    function get_rates(ind, t, rate_type) result(rates)
+    function get_rates(ind, t, rate_type, n_site_total) result(rates)
       ! return a set of rates depending on which trimer
       ! we're on and whether it's a quencher etc.
       implicit none
       real(dp) :: rates(rate_size)
       character(4) :: rate_type
       integer(ip) :: ind, start, end_, n, t_index, k
-      real(dp) :: t, ft, sigma_ratio, n_pigments, ann_fac
+      real(dp) :: t, ft, sigma_ratio, n_pigments, ann_fac, nmf
+
+      ! N = n_site_total - we assume any pigment in the complex can
+      ! be excited, but that the excitation relaxes onto the
+      ! manifold of available states effectively instantaneously.
+      ! this is why we have n_site_total and n_site_available, and
+      ! why the entropic_penalties array uses n_site_available.
+      nmf = 1.0_dp * n_site_total
+
       if (trim(rate_type).eq."PQ") then
         start = ((n_sites) * rate_size) + 1
         end_ = start + rate_size - 1
@@ -395,15 +412,12 @@ program iteration
         ! no generation on a quencher
         if ((rate_type.eq."POOL").or.&
           ((rate_type.eq."PQ").and.(n.lt.1))) then
+          ! f(t) = \sigma_{\text{eff}} * J(t) (done in construct_pulse)
           ft = pulse(int(t / dt) + 1)
-          ! ft = \sigma_eff * J(t) (done in pulse construction above)
-          ! N' = 24.0_dp to start - could also be 42 (all chls) or
-          ! 54 (all pigments including carotenoids)
-          ! and we assume (at first) \sigma_SE = \sigma (thanks Einstein)
           ! absorption first: k_abs = (ft / N') * (N - n)
-          rates(1) = (ft / 24.0_dp) * (24.0_dp - n)
+          rates(1) = (ft / nmf) * (nmf - n)
           ! now stimulated emission: k_SE = \sigma_SE (ft / N') * n
-          rates(2) = (ft / 24.0_dp) * n
+          rates(2) = (ft / nmf) * n
         end if
       else
         rates(1) = 0.0_dp

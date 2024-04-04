@@ -7,18 +7,19 @@ program iteration
   integer, parameter :: short = c_short
   integer, parameter :: ip = c_int
   real, parameter :: pi = 3.1415926535
+  integer, parameter :: n_decay_types = 10_ip
 
   character(len=200) :: params_file, rates_file, neighbours_file,&
     counts_file, prefix_long, emissive_str
   character(len=:), allocatable :: file_path, prefix
   logical(c_bool), dimension(:), allocatable :: is_quencher
-  logical(c_bool) :: emissive(4)
+  logical(c_bool) :: emissive(n_decay_types)
   integer(ip) :: i, j, k, n_sites, max_neighbours, rate_size, n_current,&
     seed_size, max_count, curr_max_count, n_quenchers, mpierr, rank,&
     num_procs, n_triplets
   integer(ip), dimension(1) :: maxloc_temp_index
-  integer(ip), dimension(4) :: curr_counts
-  integer(ip), dimension(4, 1) :: curr_locs
+  integer(ip), dimension(n_decay_types) :: curr_counts
+  integer(ip), dimension(n_decay_types, 1) :: curr_locs
   integer(ip), dimension(:), allocatable :: n_i, n_pq, n_q, n_bt, n_ct,&
     quenchers, seed
   integer(ip), dimension(:), allocatable :: neighbours_temp
@@ -118,14 +119,14 @@ program iteration
       ! sum all the emissive decays in that bin
       curr_counts = 0
       curr_locs = 0
-      do j = 1,4
+      do j = 1,n_decay_types
         if (emissive(j)) then
           curr_counts(j) = maxval(counts(j, :))
           curr_locs(j, :) = int(maxloc(counts(j, :)))
         end if
       end do
       k = 0
-      do j = 1, 4
+      do j = 1, n_decay_types
         if (emissive(j)) then
           ! maxloc returns an array - very irritating!!!!!
           maxloc_temp_index = curr_locs(maxloc(curr_counts), 1)
@@ -133,7 +134,7 @@ program iteration
         end if
       end do
       curr_max_count = k
-      write(*, *) i, rank, [(maxval(counts(j, :)), j = 1, 4)],&
+      write(*, *) i, rank, [(maxval(counts(j, :)), j = 1, n_decay_types)],&
         "max_count = ", curr_max_count
     end if
     
@@ -155,7 +156,8 @@ program iteration
   if (rank.eq.0) then
     open(file=counts_file, unit=20)
     do j = 1, size(bins)
-      write(20, '(F10.3, 4I10)') bins(j), [(counts(k, j), k = 1, 4)]
+      write(20, '(F10.3, 4I10)') bins(j), &
+        [(counts(k, j), k = 1, n_decay_types)]
     end do
     close(20)
 
@@ -246,7 +248,7 @@ program iteration
       ! something like floor(t / bin_size) + 1
       max_time = 10000.0_dp
       allocate(bins(int(max_time/binwidth)))
-      allocate(counts(4, int(max_time/binwidth)))
+      allocate(counts(n_decay_types, int(max_time/binwidth)))
       counts = 0
       do i = 1, size(bins)
         bins(i) = (i - 1) * binwidth
@@ -550,17 +552,17 @@ program iteration
           ! B-B annihilation
           n_bt(ind) = n_bt(ind) - 1
           n_triplets = n_triplets - 1
-          ! pop_loss() = .true.
+          pop_loss(5) = .true.
         else if (process.eq.(rate_size - 1)) then
           ! B-S annihilation
           n_i(ind) = n_i(ind) - 1
           n_current = n_current - 1
-          ! pop_loss() = .true.
+          pop_loss(6) = .true.
         else if (process.eq.(rate_size - 2)) then
           ! B decay
           n_bt(ind) = n_bt(ind) - 1
           n_triplets = n_triplets - 1
-          ! pop_loss() = .true.
+          pop_loss(7) = .true.
         else if (process.eq.(rate_size - 3)) then
           ! B decay
           n_bt(ind) = n_bt(ind) - 1
@@ -577,17 +579,17 @@ program iteration
           ! unsure if this is allowed
           n_ct(ind) = n_ct(ind) - 1
           n_triplets = n_triplets - 1
-          ! pop_loss() = .true.
+          pop_loss(8) = .true.
         else if (process.eq.(rate_size - 1)) then
           ! C-S annihilation
           n_i(ind) = n_i(ind) - 1
           n_current = n_current - 1
-          ! pop_loss() = .true.
+          pop_loss(9) = .true.
         else if (process.eq.(rate_size - 2)) then
           ! C decay
           n_ct(ind) = n_ct(ind) - 1
           n_triplets = n_triplets - 1
-          ! pop_loss() = .true.
+          pop_loss(10) = .true.
         end if
       end if
       if ((n_pq(ind).gt.1).or.(n_q(ind).gt.1)) then

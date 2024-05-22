@@ -12,20 +12,20 @@ program iteration
     counts_file, prefix_long, emissive_str
   character(len=:), allocatable :: file_path, prefix
   logical(c_bool), dimension(:), allocatable :: is_quencher
-  logical(c_bool) :: emissive(4)
+  logical(c_bool) :: emissive(10)
   integer(ip) :: i, j, k, n_sites, max_neighbours, rate_size, n_current,&
     seed_size, max_count, curr_max_count, n_quenchers, mpierr, rank,&
     num_procs, n_triplets
   integer(ip), dimension(1) :: maxloc_temp_index
-  integer(ip), dimension(4) :: curr_counts
-  integer(ip), dimension(4, 1) :: curr_locs
+  integer(ip), dimension(10) :: curr_counts
+  integer(ip), dimension(10, 1) :: curr_locs
   integer(ip), dimension(:), allocatable :: n_i, n_pq, n_q, n_bt, n_ct,&
     quenchers, seed
   integer(ip), dimension(:), allocatable :: neighbours_temp
   integer(ip), dimension(:, :), allocatable :: neighbours, counts
   real(dp) :: mu, n_per_t, t, dt, t_pulse, rho_q, xsec,&
     sigma, fwhm, start_time, end_time, binwidth, max_time,&
-    dt2, rep_rate, pulse_interval
+    dt2, rep_rate, pulse_interval, t_total
   real(dp), dimension(:), allocatable :: rates, base_rates, pulse,&
     bins
   real(dp), dimension(:, :), allocatable :: ds
@@ -51,31 +51,33 @@ program iteration
     call cpu_time(start_time)
   end if
 
-  dt = 1.0_dp
   pulse = construct_pulse(mu, fwhm, dt, n_per_t, n_sites)
   ! base_rates(1) is where a generation rate will go
   ! base_rates(2) is stimulated emission
   ! base_rates(3) is the hopping rate
   ds = entropic_penalties(base_rates(3))
 
+  t_total = 0.0_dp
   i = 0
   curr_max_count = 0
-  ! triplet arrays should not be zeroed between pulses!
+  ! arrays should no longer be zeroed between pulses!
   n_bt = 0
   n_ct = 0
+  n_i = 0
+  n_pq = 0
+  n_q = 0
   ! keep iterating till we get a decent number of counts
   do while (curr_max_count.lt.max_count)
+    write(*, *) "Iteration ", i
+    write(*, *) "Total time ", t_total " ps"
+    write(*, *)
+
     seed = (i * num_procs) + rank
-    ! write(*, *) "Process ", rank, " has seed ", (i * num_procs) + rank,&
-    !   " for sample ", i
+    n_current = sum(n_i) + sum(n_pq) + sum(n_q) + sum(n_bt) + sum(n_ct)
     call random_seed(put=seed)
     is_quencher = .false.
     call allocate_quenchers(n_quenchers, is_quencher, quenchers)
     call fix_base_rates()
-    n_i = 0
-    n_pq = 0
-    n_q = 0
-    n_current = 0
     t = 0.0_dp
     do while (t.lt.(size(pulse) * dt))
       ! ensure we generate excitons, otherwise
@@ -83,28 +85,19 @@ program iteration
       call mc_step(dt, n_quenchers)
     end do
     do while ((n_current.gt.0).and.(t.lt.max_time))
-      call mc_step(dt, n_quenchers)
+      ! true here to enable binning decays
+      call mc_step(dt, n_quenchers, .true.)
     end do
     i = i + 1
 
     ! second Monte Carlo part
     ! simulate triplet decay in between pulses
-    ! be careful about units here: e.g. if the triplet decay rate
-    ! is given in (us)^(-1) then everything else must be as well
-    pulse_interval = 1.0_dp / rep_rate
+    ! be careful about units here
+    pulse_interval = 1.0E-12_dp / rep_rate
     t = 0.0_dp
     do while (t.lt.(pulse_interval))
-      ! call triplet_mc(n_t)
-      t = t + dt2
+      call mc_step(dt2, n_quenchers, .false.)
     end do
-    ! might also have to randomise their positions here
-    ! before the next iteration starts; if we assume they hop
-    ! at the same rate as singlets, they'll have moved enough
-    ! between pulses that their position's essentially random
-
-    ! alternatively we simulate their movement properly in
-    ! triplet_mc, which will require a hop rate and presumably
-    ! a T-T annihilation rate - I don't think we're doing this tho
 
     if (mod(i, 100).eq.0) then
       ! every 100 iterations, check the current bin counts
@@ -118,14 +111,14 @@ program iteration
       ! sum all the emissive decays in that bin
       curr_counts = 0
       curr_locs = 0
-      do j = 1,4
+      do j = 1, 10
         if (emissive(j)) then
           curr_counts(j) = maxval(counts(j, :))
           curr_locs(j, :) = int(maxloc(counts(j, :)))
         end if
       end do
       k = 0
-      do j = 1, 4
+      do j = 1, 10
         if (emissive(j)) then
           ! maxloc returns an array - very irritating!!!!!
           maxloc_temp_index = curr_locs(maxloc(curr_counts), 1)
@@ -175,6 +168,8 @@ program iteration
       implicit none
       call get_command_argument(1, params_file)
       open(file=params_file, unit=20)
+      read(20, *) dt
+      read(20, *) dt2
       read(20, *) n_sites
       read(20, *) max_neighbours
       read(20, *) rho_q
@@ -210,6 +205,7 @@ program iteration
       write(*, '(a, F8.3)')   "fwhm       = ", fwhm
       write(*, '(a, F8.3)')   "binwidth   = ", binwidth
       write(*, '(a, I8)')     "max count  = ", max_count
+      write(*, '(a, I8)')     "max time  = ", max_time
       write(*, '(a, a)')      "rate file  = ", rates_file
       write(*, '(a, a)')      "neigh file = ", neighbours_file
 
@@ -244,7 +240,6 @@ program iteration
 
       ! one set of bins for each decay type; the bin array index will be
       ! something like floor(t / bin_size) + 1
-      max_time = 10000.0_dp
       allocate(bins(int(max_time/binwidth)))
       allocate(counts(4, int(max_time/binwidth)))
       counts = 0
@@ -550,19 +545,19 @@ program iteration
           ! B-B annihilation
           n_bt(ind) = n_bt(ind) - 1
           n_triplets = n_triplets - 1
-          ! pop_loss() = .true.
+          pop_loss(5) = .true.
         else if (process.eq.(rate_size - 1)) then
           ! B-S annihilation
           n_i(ind) = n_i(ind) - 1
           n_current = n_current - 1
-          ! pop_loss() = .true.
+          pop_loss(6) = .true.
         else if (process.eq.(rate_size - 2)) then
           ! B decay
           n_bt(ind) = n_bt(ind) - 1
           n_triplets = n_triplets - 1
-          ! pop_loss() = .true.
+          pop_loss(7) = .true.
         else if (process.eq.(rate_size - 3)) then
-          ! B decay
+          ! B-C transfer
           n_bt(ind) = n_bt(ind) - 1
           n_ct(ind) = n_ct(ind) + 1
         else if ((process.gt.2).and.(process.lt.(rate_size - 3))) then
@@ -577,17 +572,17 @@ program iteration
           ! unsure if this is allowed
           n_ct(ind) = n_ct(ind) - 1
           n_triplets = n_triplets - 1
-          ! pop_loss() = .true.
+          pop_loss(8) = .true.
         else if (process.eq.(rate_size - 1)) then
           ! C-S annihilation
           n_i(ind) = n_i(ind) - 1
           n_current = n_current - 1
-          ! pop_loss() = .true.
+          pop_loss(9) = .true.
         else if (process.eq.(rate_size - 2)) then
           ! C decay
           n_ct(ind) = n_ct(ind) - 1
           n_triplets = n_triplets - 1
-          ! pop_loss() = .true.
+          pop_loss(10) = .true.
         end if
       end if
       if ((n_pq(ind).gt.1).or.(n_q(ind).gt.1)) then
@@ -602,8 +597,9 @@ program iteration
       end if
     end subroutine move
 
-    subroutine mc_step(dt, n_quenchers)
+    subroutine mc_step(dt, n_quenchers, bin_decays)
       implicit none
+      logical(c_bool) :: bin_decays
       character(4) :: rate_type
       integer(ip) :: n_attempts, nonzero, choice,&
         i, j, k, n_quenchers, ri, trimer
@@ -676,17 +672,21 @@ program iteration
           end if
         end do
 
-        if (any(pop_loss)) then
-          ! increment the relevant bin for the histograms
-          do k = 1, size(pop_loss)
-            if (pop_loss(k)) then
-              counts(k, floor(t / binwidth) + 1) = &
-              counts(k, floor(t / binwidth) + 1) + 1
-            end if
-          end do
+        if (bin_decays) then
+          if (any(pop_loss)) then
+            ! increment the relevant bin for the histograms
+            do k = 1, size(pop_loss)
+              if (pop_loss(k)) then
+                counts(k, floor(t / binwidth) + 1) = &
+                counts(k, floor(t / binwidth) + 1) + 1
+              end if
+            end do
+          end if
         end if
+
       end do
       t = t + dt
+      t_total = t_total + dt
     end subroutine mc_step
 
 end program iteration

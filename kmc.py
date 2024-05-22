@@ -57,8 +57,8 @@ class Setup():
     Record the intervals between exciton losses and whether these were
     emissive or not.
     '''
-    def __init__(self, aggregate, model, pulse, rho_quenchers,
-            path, prefix, n_per_t, binwidth, max_count,
+    def __init__(self, aggregate, model, pulse, dt1, dt2, rho_quenchers,
+            path, prefix, n_per_t, binwidth, max_count, max_time,
             verbose=False):
         if verbose:
             self.output = sys.stdout
@@ -67,6 +67,9 @@ class Setup():
         self.aggregate = aggregate
         self.model = model
         self.pulse = pulse
+        self.dt1 = dt1
+        self.dt2 = dt2
+        self.max_time = max_time
         self.n_per_t = n_per_t
         self.rho_quenchers = rho_quenchers
         self.n_sites = len(self.aggregate.trimers)
@@ -145,6 +148,9 @@ class Setup():
         np.savetxt(neighbours_file,
                 self.neighbours.flatten(order='F') + 1, fmt='%6d')
         with open(self.params_file, 'w') as f:
+            f.write("{:d}\n".format(self.dt1))
+            f.write("{:d}\n".format(self.dt2))
+            f.write("{:d}\n".format(self.n_sites))
             f.write("{:d}\n".format(self.n_sites))
             f.write("{:d}\n".format(self.max_neighbours))
             f.write("{:f}\n".format(self.rho_quenchers))
@@ -153,6 +159,7 @@ class Setup():
             f.write("{:f}\n".format(self.pulse.fwhm))
             f.write("{:f}\n".format(binwidth))
             f.write("{:d}\n".format(max_count))
+            f.write("{:d}\n".format(self.max_time))
             # [1:-1] here because fortran doesn't like parsing the [ ]
             f.write(str(self.model.emissive)[1:-1])
             f.write("\n")

@@ -24,42 +24,47 @@ fluences_1Mhz = [1.79E14, 4.48E14, 8.96E14, 1.34E15,
 fluences_10Mhz = [1.79E13, 4.48E13, 8.96E13, 1.34E14,
         1.79E14, 4.48E14, 8.96E14, 1.34E15, 1.52E15, 1.61E15,
         1.79E15, 2.24E15, 2.6E15]
+rep_rates = []
 # these aren't really fluences, i'm abusing notation because the rest
 # of the code looks for fluences. they're arbitrary excitation densities
 # - by doing this we get average excitations per trimer of 0.05, 0.10, etc
 fluences = [x / xsec for x in [0.05, 0.10, 0.25, 0.50,
             0.75, 1.0, 1.25, 1.5, 2., 3., 4., 5.]]
 fluences = [x / xsec for x in [0.05, 2., 5.]]
-pulse_fwhm = 50. # fwhm of pulse in ps
-pulse_mu = 200. # peak time of pulse in ps
+pulse_fwhm = 50.E-12 # fwhm of pulse in ps
+pulse_mu = 200.E-12 # peak time of pulse in ps
+
+dt1 = 1.0E-12
+dt2 = 1.0E-9
 
 # rates - give in picoseconds! the Rates class takes the reciprocal
-hop = 25. # hopping rate between trimers
-g_a = 3600. # decay of a chlorophyll
+hop = 25.0E-12# hopping rate between trimers
+g_a = 3600.E-12 # decay of a chlorophyll
 g_p = g_a # pre-quencher is also a chlorophyll
-g_q = 10. # decay of a quencher (carotenoid)
-ann = 16. # annihilation rate for excitons on same trimer
-tau_p_a = 1. # transfer rate from pre-quencher to antenna
+g_q = 10.E-12 # decay of a quencher (carotenoid)
+ann = 16.E-12 # annihilation rate for excitons on same trimer
+tau_p_a = 1.E-12 # transfer rate from pre-quencher to antenna
 omega = 5. # entropy ratio - \tau_{pool->pq} / \tau_{pq->pool}
 tau_a_p = omega * tau_p_a
 # which decays are emissive: [ann, antenna, pre-quencher, quencher]
 # this could change between models! but in our case it does not
-emissive = [False, True, True, False]
+emissive = [False, True, True, False, False,
+            False, False, False, False, False]
 rates_dict = {
  'detergent': Rates(np.inf, g_a, g_p, g_q, np.inf, np.inf,
      np.inf, np.inf, ann, emissive),
  'hop_only': Rates(hop, g_a, g_p,  g_q, np.inf, np.inf,
      np.inf, np.inf, ann, emissive),
  'slow_entropic': Rates(hop, g_a, g_p, g_q,
-     tau_a_p, tau_p_a, 100., np.inf, ann, emissive),
+     tau_a_p, tau_p_a, 100.E-12, np.inf, ann, emissive),
  'medium_entropic': Rates(hop, g_a, g_p, g_q,
      tau_a_p, tau_p_a, hop, np.inf, ann, emissive),
  'fast_entropic': Rates(hop, g_a, g_p, g_q,
-     tau_a_p, tau_p_a, 1.0, np.inf, ann, emissive),
+     tau_a_p, tau_p_a, 1.0E-12, np.inf, ann, emissive),
  'slow_non-entropic': Rates(hop, g_a, g_p, g_q,
-     tau_p_a, tau_p_a, 100., np.inf, ann, emissive),
+     tau_p_a, tau_p_a, 100.E-12, np.inf, ann, emissive),
  'medium_non-entropic': Rates(hop, g_a, g_p, g_q,
      tau_p_a, tau_p_a, hop, np.inf, ann, emissive),
  'fast_non-entropic': Rates(hop, g_a, g_p, g_q,
-     tau_p_a, tau_p_a, 1.0, np.inf, ann, emissive),
+     tau_p_a, tau_p_a, 1.0E-12, np.inf, ann, emissive),
  }

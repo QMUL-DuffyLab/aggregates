@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 import sys, os
 import numpy as np
-import cv2
 from trimer import Aggregate
 
 class Pulse():
@@ -150,7 +149,6 @@ class Setup():
         with open(self.params_file, 'w') as f:
             f.write("{:d}\n".format(self.dt1))
             f.write("{:d}\n".format(self.dt2))
-            f.write("{:d}\n".format(self.n_sites))
             f.write("{:d}\n".format(self.n_sites))
             f.write("{:d}\n".format(self.max_neighbours))
             f.write("{:f}\n".format(self.rho_quenchers))

@@ -100,15 +100,22 @@ program iteration
           curr_locs(j, :) = int(maxloc(counts(j, :)))
         end if
       end do
+
       k = 0
-      do j = 1, 4
-        if (emissive(j)) then
-          ! maxloc returns an array - very irritating!!!!!
-          maxloc_temp_index = curr_locs(maxloc(curr_counts), 1)
-          k = k + counts(j, maxloc_temp_index(1))
-        end if
-      end do
-      curr_max_count = k
+      ! if all the counts are zero the indexing here will go funny,
+      ! so check for that
+      if (all(curr_counts.eq.0)) then
+        curr_max_count = 0
+      else
+        do j = 1, 4
+          if (emissive(j)) then
+            ! maxloc returns an array - very irritating!!!!!
+            maxloc_temp_index = curr_locs(maxloc(curr_counts), 1)
+            k = k + counts(j, maxloc_temp_index(1))
+          end if
+        end do
+        curr_max_count = k
+      end if
       write(*, *) i, rank, [(maxval(counts(j, :)), j = 1, 4)],&
         "max_count = ", curr_max_count
     end if

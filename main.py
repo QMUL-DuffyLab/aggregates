@@ -20,9 +20,6 @@ if __name__ == "__main__":
     # required arguments
     parser.add_argument('-q', '--rho_q', type=float, required=True,
             help=r'Density of quenchers \rho_q')
-    parser.add_argument('-l', '--lattice', type=str, required=True,
-            choices=['line', 'square', 'honeycomb', 'hex'],
-            help="Lattice type. Options are: 'hex', 'honeycomb', 'square', 'line'")
     parser.add_argument('-m', '--model', type=str, required=True,
             choices=[*defaults.rates_dict],
             help='''
@@ -31,6 +28,9 @@ Quenching model to use. Options are:
 'slow_non-entropic', 'medium_non-entropic', 'fast_non-entropic',
 See defaults.py for specific numbers''')
     # optional arguments
+    parser.add_argument('-l', '--lattice', type=str, default='hex',
+            choices=['line', 'square', 'honeycomb', 'hex'],
+            help="Lattice type. Options are: 'hex', 'honeycomb', 'square', 'line'")
     parser.add_argument('-r', '--protein_radius', type=float,
             default=defaults.protein_r,
             help="Radius of the protein (nm) - only relevant when packing real aggregates")
@@ -73,15 +73,15 @@ per trimer will also need to be changed.
     rates.print()
     pulse = Pulse(fwhm=args.pulsewidth, mu=args.pulse_mean)
     fluences = args.fluences
-    # next line - use Lekshmi's 1MHZ experimental fluences
-    # fluences = defaults.fluences_1Mhz
     for fluence in fluences:
-        n_per_t = defaults.xsec * fluence
         os.makedirs(path, exist_ok=True)
-        file_prefix = "{:3.2f}_{:3.2f}_{:5.2f}_".format(
-                args.rho_q, n_per_t, args.pulsewidth)
+        file_prefix = "{:3.2f}_{:6.4e}_{:5.2f}_".format(
+                args.rho_q, fluence, args.pulsewidth)
         print("Prefix = {}".format(file_prefix))
 
+        # internally the fortran uses the excitation density to
+        # fix the amplitude of the pulse. long story
+        n_per_t = defaults.xsec * fluence
         if not args.fit:
             verbose = False
             # note - second parameter here is the nn cutoff

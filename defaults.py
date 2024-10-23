@@ -5,6 +5,8 @@ protein_r = 5. # radius of a protein - only relevant for packing of real aggrega
 n_trimers = 200 # (approximate) number of trimers to place in lattice
 max_count = 10000 # maximum count to reach in histogram
 binwidth = 25.0 # histogram bin width (picoseconds)
+n_repeats = 3   # number of repeats to perform
+n_procs = 4     # number of MPI cores to use
 
 # pulse stuff
 """
@@ -18,7 +20,7 @@ binwidth = 25.0 # histogram bin width (picoseconds)
 """
 xsec = 2.74E-15
 # example experimental fluences. give in photons cm^{-2} pulse^{-1}
-fluences = [1.0e12, 5.0e12, 1.0e13, 5.0e13, 1.0e14]
+fluences = [1.0e14, 5.0e13, 1.0e13, 5.0e12, 1.0e12]
 # example of using excitation densities instead of real fluences - if
 # you want to do this you can just change the variable name from
 # exc_dens to fluences and the code will use these instead
@@ -30,11 +32,14 @@ pulse_mu = 200. # peak time of pulse in ps
 
 # rate stuff - all in picoseconds
 hop = 25.0              # hopping rate between trimers
-chl_decay = 2200.0      # decay of a chlorophyll
+chl_decay = 4000.0      # decay of a chlorophyll
 pq_decay = chl_decay    # decay of pre-quencher
 q_decay = 10.0          # decay of a quencher (carotenoid)
 ann = 16.0              # annihilation rate for excitons on same trimer
 omega = 5.0             # entropy ratio (n_pool / n_pq)
+t_pq_q = 100.0          # transfer time from PQ to Q
+t_q_pq = np.inf         # backtransfer from the quencher - assume none
+t_intra = 1.0           # transfer between chlorophylls on same trimer
 
 # the fortran code actually bins four decay processes:
 # [annihilation, pool decay, PQ decay, Q decay].
@@ -54,7 +59,7 @@ rates_dict = {
  # the chlorophyll which transfers energy to the carotenoid isn't
  # strongly coupled to the rest of the Chls.
  # slow, medium, fast denote the transfer rate from PQ to Q:
- # slow 100ps, medium 10ps, fast 1ps
+ # slow 100ps, medium 25ps, fast 1ps
  'slow_entropic': Rates(hop, chl_decay, pq_decay, q_decay,
      omega, 1.0, 100., np.inf, ann, emissive, True, True),
  'medium_entropic': Rates(hop, chl_decay, pq_decay, q_decay,

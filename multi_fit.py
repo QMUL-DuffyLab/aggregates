@@ -174,7 +174,7 @@ def do_fit(filename, tau_init, irf_file=None,
         plt.legend()
         plt.title("Decay curve - checking the time adjustment")
         ax.set_yscale('log')
-        plt.savefig("{}/{}_exp_decays.pdf".format(path, fluence))
+        plt.savefig(os.path.join(path, f"{fluence}_exp_decays.pdf"))
         plt.close()
 
     n_exp = len(tau_init)
@@ -244,8 +244,7 @@ def do_fit(filename, tau_init, irf_file=None,
     ax.set_ylabel("Counts (normalised)")
     ax.set_xlabel("Time (ns)")
     plt.tight_layout()
-    plt.savefig("{}/{}_tail_fit_{}.pdf".format(path, fluence, n_exp))
-    # plt.show()
+    plt.savefig(os.path.join(path, f"{fluence}_tail_fit_{n_exp}.pdf"))
     plt.close()
 
     """
@@ -304,7 +303,7 @@ def do_fit(filename, tau_init, irf_file=None,
             + "{:4.2f} +/- {:4.2f} ns".format(d["tau_amp"], d["tau_amp_err"]))
     axs[0].plot(xyn[:, 0], xyn[:, 2], ls='--', marker='o', label='Decays')
     axs[0].plot(xyn[:, 0], bf, label='fit')
-    plot_file = "{}/{}_reconv_{}.pdf".format(path, fluence, str(n_exp))
+    plot_file = os.path.join(path, f"{fluence}_reconv_{n_exp}.pdf")
     axs[0].legend()
     axs[0].grid(True)
     axs[1].grid(True)
@@ -329,7 +328,7 @@ def do_fit(filename, tau_init, irf_file=None,
     #         + "{:4.2f} +/- {:4.2f} ns".format(d["tau_amp"], d["tau_amp_err"]))
     ax.plot(xyn[:, 0], xyn[:, 2], ls='--', marker='o', label='Decays')
     ax.plot(xyn[:, 0], bf, label='Fit')
-    plot_file = "{}/{}_reconv_paper_{}.pdf".format(path, fluence, str(n_exp))
+    plot_file = os.path.join(path, f"{fluence}_reconv_paper_{n_exp}.pdf")
     ax.legend(fontsize=36)
     ax.grid(True)
     ax.set_ylim([0., 1.1])

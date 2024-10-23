@@ -9,13 +9,13 @@ program iteration
   real, parameter :: pi = 3.1415926535
 
   character(len=200) :: params_file, rates_file, neighbours_file,&
-    counts_file, prefix_long, emissive_str
+    counts_file, prefix_long, emissive_str, seed_arg
   character(len=:), allocatable :: file_path, prefix
   logical(c_bool), dimension(:), allocatable :: is_quencher
   logical(c_bool) :: emissive(4)
   integer(ip) :: i, j, k, n_sites, max_neighbours, rate_size, n_current,&
     seed_size, max_count, curr_max_count, n_quenchers, mpierr, rank,&
-    num_procs
+    num_procs, seed_start
   integer(ip), dimension(1) :: maxloc_temp_index
   integer(ip), dimension(4) :: curr_counts
   integer(ip), dimension(4, 1) :: curr_locs
@@ -32,7 +32,7 @@ program iteration
   call MPI_Comm_rank(MPI_COMM_WORLD, rank,      mpierr)
   call MPI_Comm_size(MPI_COMM_WORLD, num_procs, mpierr)
 
-  call init()
+  call init(rank)
 
   ! GCC docs say that random_number etc implement xoshiro1024*
   ! since F95, which should be more than enough for our purposes
@@ -56,14 +56,13 @@ program iteration
   ! base_rates(3) is the hopping rate
   ds = entropic_penalties(base_rates(3))
 
+  seed = (seed_start * num_procs) + rank
+  write(*, *) "Process ", rank, " has seed ", seed
+  call random_seed(put=seed)
   i = 0
   curr_max_count = 0
   ! keep iterating till we get a decent number of counts
   do while (curr_max_count.lt.max_count)
-    seed = (i * num_procs) + rank
-    ! write(*, *) "Process ", rank, " has seed ", (i * num_procs) + rank,&
-    !   " for sample ", i
-    call random_seed(put=seed)
     is_quencher = .false.
     call allocate_quenchers(n_quenchers, is_quencher, quenchers)
     call fix_base_rates()
@@ -153,10 +152,16 @@ program iteration
 
   contains
 
-    subroutine init()
+    subroutine init(rank)
       ! this is ugly lmao
       implicit none
+      integer :: rank
       call get_command_argument(1, params_file)
+      call get_command_argument(2, seed_arg)
+      read(seed_arg, *) seed_start
+      if (rank.eq.0) then
+        write(*, *) "Seed start = ", seed_start
+      end if
       open(file=params_file, unit=20)
       read(20, *) n_sites
       read(20, *) max_neighbours
@@ -184,25 +189,29 @@ program iteration
       ! that max_neighbours is > 0 and put the extra pq rate in the middle
       ! somewhere, and that seems pointless just to save a few bytes
       rate_size = max_neighbours + 6
-      write(*, '(a, I4)')     "n_sites    = ", n_sites
-      write(*, '(a, I1)')     "max neigh  = ", max_neighbours
-      write(*, '(a, F8.3)')   "rho_q      = ", rho_q
-      write(*, '(a, ES10.3)') "n_per_t    = ", n_per_t
-      write(*, '(a, F8.3)')   "mu         = ", mu
-      write(*, '(a, F8.3)')   "fwhm       = ", fwhm
-      write(*, '(a, F8.3)')   "binwidth   = ", binwidth
-      write(*, '(a, I8)')     "max count  = ", max_count
-      write(*, '(a, a)')      "rate file  = ", rates_file
-      write(*, '(a, a)')      "neigh file = ", neighbours_file
+      if (rank.eq.0) then
+        write(*, '(a, I4)')     "n_sites    = ", n_sites
+        write(*, '(a, I1)')     "max neigh  = ", max_neighbours
+        write(*, '(a, F8.3)')   "rho_q      = ", rho_q
+        write(*, '(a, ES10.3)') "n_per_t    = ", n_per_t
+        write(*, '(a, F8.3)')   "mu         = ", mu
+        write(*, '(a, F8.3)')   "fwhm       = ", fwhm
+        write(*, '(a, F8.3)')   "binwidth   = ", binwidth
+        write(*, '(a, I8)')     "max count  = ", max_count
+        write(*, '(a, a)')      "rate file  = ", rates_file
+        write(*, '(a, a)')      "neigh file = ", neighbours_file
+      end if
 
       i = scan(rates_file, "/\", .true.)
       file_path = rates_file(:i)
       ! write(prefix_long, '(F4.2, a, ES8.2, a)') rho_q, "_", fluence, "_"
       prefix = trim(adjustl(prefix_long))
-      write(*, *) "File path = ", file_path
-      write(*, *) "Prefix = ", prefix
-      write(counts_file, '(a, a, a)') file_path,&
-        prefix, "counts.dat"
+      if (rank.eq.0) then
+        write(*, *) "File path = ", file_path
+        write(*, *) "Prefix = ", prefix
+      end if
+      write(counts_file, '(a, a, a, a, a)') file_path,&
+        prefix, trim(adjustl(seed_arg)), "_", "counts.dat"
 
       ! fortran's fine with 0-sized arrays so this is okay
       ! even in the detergent case where there are no neighbours
@@ -279,9 +288,9 @@ program iteration
           else
             ds(i, j) = hopping_rate
           end if
-          write(*, '(F10.6, a)', advance="no") ds(i, j), " "
+          ! write(*, '(F10.6, a)', advance="no") ds(i, j), " "
         end do
-        write(*, *)
+        ! write(*, *)
       end do
     end function entropic_penalties
 

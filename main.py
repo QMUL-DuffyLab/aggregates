@@ -20,17 +20,21 @@ if __name__ == "__main__":
     # required arguments
     parser.add_argument('-q', '--rho_q', type=float, required=True,
             help=r'Density of quenchers \rho_q')
-    parser.add_argument('-m', '--model', type=str, required=True,
-            choices=[*defaults.rates_dict],
-            help='''
-Quenching model to use. Options are:
-'detergent', 'hop_only', 'slow_entropic', 'medium_entropic', 'fast_entropic',
-'slow_non-entropic', 'medium_non-entropic', 'fast_non-entropic',
-See defaults.py for specific numbers''')
+    parser.add_argument('-name', type=str, required=True,
+            help="Name for the output folder")
     # optional arguments
     parser.add_argument('-l', '--lattice', type=str, default='hex',
             choices=['line', 'square', 'honeycomb', 'hex'],
             help="Lattice type. Options are: 'hex', 'honeycomb', 'square', 'line'")
+    parser.add_argument('-t', '--transfer', type=float,
+            default=defaults.t_pq_q,
+            help=f"Transfer time from pre-quencher to quencher (in picoseconds).")
+    parser.add_argument('-o', '--omega', type=float,
+            default=defaults.omega,
+            help=f"Omega: entropic penalty for transfer to the pre-quencher.")
+    parser.add_argument('-d', '--chl_decay', type=float,
+            default=defaults.chl_decay,
+            help=f"Chlorophyll decay time (in picoseconds).")
     parser.add_argument('-r', '--protein_radius', type=float,
             default=defaults.protein_r,
             help="Radius of the protein (nm) - only relevant when packing real aggregates")
@@ -60,16 +64,17 @@ per trimer will also need to be changed.
 
     args = parser.parse_args()
     print(args)
+    rates = Rates(defaults.hop, args.chl_decay, args.chl_decay,
+            defaults.q_decay, args.omega, defaults.t_intra,
+            args.transfer, defaults.t_q_pq,
+            defaults.ann, defaults.emissive, True, True)
     # make sure the fortran is compiled and up to date
     subprocess.run(['mpifort',
         '-O2', 'iteration.f90', '-o', './agg_mc'], check=True)
+    path = os.path.join("out", args.name, args.lattice)
     if len(args.prefix) > 0:
-        path = "out/{}/{}/{}".format(args.model, args.lattice,
-                args.prefix)
-    else:
-        path = "out/{}/{}".format(args.model, args.lattice)
+        path = os.path.join(path, args.prefix)
     os.makedirs(path, exist_ok=True)
-    rates = defaults.rates_dict[args.model]
     rates.print()
     pulse = Pulse(fwhm=args.pulsewidth, mu=args.pulse_mean)
     fluences = args.fluences
@@ -91,53 +96,57 @@ per trimer will also need to be changed.
                     path, file_prefix, n_per_t, args.binwidth, args.max_count,
                     verbose=verbose)
             if not args.files_only:
-                subprocess.run(['mpirun',
-                    '-np', '4', './agg_mc', it.params_file], check=True)
-                # non-MPI run
-                # subprocess.run(['./f_iter', it.params_file], check=True)
+                for i in range(defaults.n_repeats):
+                    subprocess.run(['mpirun',
+                        '-np', f'{defaults.n_procs:1d}',
+                        './agg_mc', it.params_file,
+                        f"{i:d}"], check=True)
 
-        count_file = "{}/{}counts.dat".format(path, file_prefix)
-        # fitting stuff
-        if os.path.isfile(count_file):
-            n_max = defaults.n_max
-            tau_init = defaults.tau_init
-            dicts = []
-            fits = []
-            for i in range(1, n_max + 1):
-                try:
-                    (d, fit) = multi_fit.do_fit(count_file,
-                            tau_init[:i],
-                            exp=False,
-                            pw = args.pulsewidth / 1000.,
-                            pm = args.pulse_mean / 1000.,
-                            time_unit = 'ps')
-                except RuntimeError:
-                    print("n_exp = {:2d} fit didn't work".format(i))
-                    d = {}
-                    fit = np.empty(1)
-                dicts.append(d)
-                fits.append(fit)
-                print("n_exp = {:2d}: fit_info = ".format(i), d)
-            df = pd.DataFrame(dicts)
-            # once a sweep of fluences is run, run again with option
-            # --fit_only; this lets you pick the best visual fits
-            if args.fit:
-                fig, ax = plt.subplots(figsize=(8,6))
-                ax.set_ylabel("Counts")
-                ax.set_xlabel("Time (ns)")
-                ax.set_xlim([-1., 10.])
-                ax.plot(fits[0][:, 0], fits[0][:, 1], ls='--', marker='o',
-                        lw=3., label='decays')
-                for i, fit in enumerate(fits):
-                    if fit.size > 1:
-                        ax.plot(fit[:, 0], fit[:, 2], lw=2.5,
-                                label='n = {:2d}'.format(i + 1))
-                fig.tight_layout()
-                plt.grid()
-                plt.legend()
-                plt.show()
-                best_n = input("Best fit - how many exponentials?")
-                df["best_fit"] = best_n
-            df.to_csv("{}/{}fit_info.csv".format(path, file_prefix))
+        for i in range(defaults.n_repeats):
+            count_file = os.path.join(path, f"{file_prefix}{i:1d}_counts.dat")
+            print(f"Fitting {count_file}")
+            if os.path.isfile(count_file):
+                n_max = defaults.n_max
+                tau_init = defaults.tau_init
+                dicts = []
+                fits = []
+                for j in range(1, n_max + 1):
+                    try:
+                        (d, fit) = multi_fit.do_fit(count_file,
+                                tau_init[:j],
+                                exp=False,
+                                pw = args.pulsewidth / 1000.,
+                                pm = args.pulse_mean / 1000.,
+                                time_unit = 'ps')
+                    except RuntimeError:
+                        print("n_exp = {:2d} fit didn't work".format(j))
+                        d = {}
+                        fit = np.empty(1)
+                    dicts.append(d)
+                    fits.append(fit)
+                    print("n_exp = {:2d}: fit_info = ".format(j), d)
+                df = pd.DataFrame(dicts)
+                # once a sweep of fluences is run, run again with option
+                # --fit_only; this lets you pick the best visual fits
+                if args.fit:
+                    fig, ax = plt.subplots(figsize=(8,6))
+                    ax.set_ylabel("Counts")
+                    ax.set_xlabel("Time (ns)")
+                    ax.set_xlim([-1., 10.])
+                    ax.plot(fits[0][:, 0], fits[0][:, 1], ls='--', marker='o',
+                            lw=3., label='decays')
+                    for j, fit in enumerate(fits):
+                        if fit.size > 1:
+                            ax.plot(fit[:, 0], fit[:, 2], lw=2.5,
+                                    label='n = {:2d}'.format(j + 1))
+                    fig.tight_layout()
+                    plt.grid()
+                    plt.legend()
+                    fig.savefig(os.path.join(path,
+                        f"{file_prefix}_{i:1d}_fits.pdf")) 
+                    # best_n = input("Best fit - how many exponentials?")
+                    # df["best_fit"] = best_n
+                df.to_csv(os.path.join(path,
+                    f"{file_prefix}_{i:1d}_fit_info.csv"))
     end_time = time.monotonic()
     print("Total time elapsed: {}".format((end_time - start_time)))

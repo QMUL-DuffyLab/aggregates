@@ -340,7 +340,14 @@ def do_fit(filename, tau_init, irf_file=None,
     plt.savefig(plot_file)
     plt.close()
     df = pd.DataFrame(d, index=[0])
-    df.to_csv("{}/{}_fit_info_{}.csv".format(path, fluence, str(n_exp)))
+    df_file = os.path.join(f"{path}", f"{fluence}_fit_{n_exp}.csv")
+    df.to_csv(df_file)
+
+    count_file = os.path.join(f"{path}", f"{fluence}_norm_counts.txt")
+    np.savetxt(count_file, np.column_stack((xyn[:, 0], xyn[:, 2])))
+    fit_file = os.path.join(f"{path}", f"{fluence}_fit_{n_exp}.txt")
+    np.savetxt(fit_file, np.column_stack((xyn[:, 0], bf)))
+
     return (d, np.column_stack((xyn[:, 0], xyn[:, 2], bf)))
 
 if __name__ == "__main__":

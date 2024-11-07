@@ -345,7 +345,7 @@ def do_fit(filename, tau_init, irf_file=None,
 
     count_file = os.path.join(f"{path}", f"{fluence}_norm_counts.txt")
     np.savetxt(count_file, np.column_stack((xyn[:, 0], xyn[:, 2])))
-    fit_file = os.path.join(f"{path}", f"{fluence}_fit_{n_exp}.txt")
+    fit_file = os.path.join(f"{path}", f"{fluence}_fit_xy_{n_exp}.txt")
     np.savetxt(fit_file, np.column_stack((xyn[:, 0], bf)))
 
     return (d, np.column_stack((xyn[:, 0], xyn[:, 2], bf)))
